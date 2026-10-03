@@ -1,0 +1,29 @@
+# Secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Local user data
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+memory.json
+state.json
+
+# Python environment and caches
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Local logs, backups and temporary files
+*.log
+*_backup*.py
+*_view.txt
+*.tmp
+.idea/
+.vscode/
