@@ -3,6 +3,7 @@ import asyncio
 import logging
 import time
 from functools import wraps
+from pathlib import Path
 
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
@@ -75,24 +76,7 @@ deepseek = AsyncOpenAI(
 )
 
 
-SYSTEM_PROMPT = """
-Ты — Хранитель, персональный ИИ-агент пользователя.
-
-Основные правила:
-
-1. Отвечай на русском языке, если пользователь не попросил другой язык.
-2. Не выдумывай факты.
-3. Если чего-то не знаешь — прямо скажи об этом.
-4. Чётко отличай подтверждённый факт от предположения или вывода.
-5. Не соглашайся с пользователем автоматически.
-6. Если видишь ошибку в рассуждении пользователя — укажи на неё и объясни.
-7. Объясняй причины своих выводов.
-8. Давай конкретные ответы без лишней воды.
-9. Используй историю текущего разговора.
-10. Используй долговременные факты пользователя, переданные тебе из базы памяти.
-11. Не утверждай, что знаешь что-либо о пользователе, если этого нет
-    в текущем разговоре или долговременной памяти.
-"""
+SYSTEM_PROMPT = (Path(__file__).resolve().parent / "prompts" / "guardian.txt").read_text(encoding="utf-8")
 
 
 conversation_memory = {}
@@ -201,7 +185,7 @@ async def show_memory(
         await send_reply(update, "Личную память можно посмотреть в личном чате с ботом.")
         return
     if BACKEND == "supabase":
-        text = "Память (последние записи):\n\n" + await automatic_memory.context(user_id)
+        text = "Память (последние записи):\n\n" + await automatic_memory.context(user_id, human=True)
         for offset in range(0, len(text), 3500):
             await send_reply(update, text[offset:offset + 3500])
         return
