@@ -19,10 +19,11 @@ def redact(text):
     )
 
 
-async def record(update, role, message):
+async def record(update, role, message, text=None):
+    content = text if text is not None else getattr(message, "text", None)
     if (os.getenv("MEMORY_BACKEND", "sqlite") != "supabase"
             or not update.effective_chat or update.effective_chat.type != "private"
-            or not update.effective_user or not message or not message.text):
+            or not update.effective_user or not message or not content):
         return
     try:
         if (not isinstance(message.message_id, int) or message.message_id <= 0
@@ -34,7 +35,7 @@ async def record(update, role, message):
             "telegram_user_id": update.effective_user.id,
             "chat_id": update.effective_chat.id,
             "telegram_message_id": message.message_id,
-            "role": role, "content": redact(message.text),
+            "role": role, "content": redact(content),
         }, prefer="resolution=ignore-duplicates,return=representation")
     except Exception as error:
         logger.warning("История переписки: запись не выполнена (%s)", type(error).__name__)

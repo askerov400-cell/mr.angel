@@ -22,6 +22,7 @@ from storage.supabase_store import StorageError
 from memory import service as automatic_memory
 from memory.journal import send_reply, capture_incoming, restore_dialogue
 from memory.commands import PATTERN as COMMAND_PATTERN, parse as parse_command
+from speech.handler import handle_audio
 
 
 logging.basicConfig(
@@ -220,6 +221,10 @@ async def handle_formatted_command(update, context):
         await clear_memory(update, context)
 
 
+async def audio_message(update, context):
+    await handle_audio(update, context, handle_text)
+
+
 async def handle_message(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE
@@ -232,8 +237,11 @@ async def handle_message(
     ):
         return
 
+    await handle_text(update, context, update.message.text)
+
+
+async def handle_text(update, context, user_text):
     user_id = update.effective_user.id
-    user_text = update.message.text
     started = time.monotonic()
     logger.info("Получено сообщение: %d символов", len(user_text))
 
@@ -342,6 +350,7 @@ def main():
     app = Application.builder().token(TELEGRAM_TOKEN).post_init(telegram_ready).build()
     app.add_error_handler(log_error)
     app.add_handler(TypeHandler(Update, capture_incoming), group=-1)
+    app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, audio_message))
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("clear", clear_memory))
