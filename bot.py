@@ -23,6 +23,7 @@ from memory import service as automatic_memory
 from memory.journal import send_reply, capture_incoming, restore_dialogue
 from memory.commands import PATTERN as COMMAND_PATTERN, parse as parse_command
 from speech.handler import handle_audio
+from vision.handler import handle_photo
 
 
 logging.basicConfig(
@@ -225,6 +226,15 @@ async def audio_message(update, context):
     await handle_audio(update, context, handle_text)
 
 
+async def photo_message(update, context):
+    if not update.effective_user or not update.effective_chat:
+        return
+    key = (update.effective_user.id, update.effective_chat.id)
+    if key not in conversation_memory and BACKEND == "supabase" and update.effective_chat.type == "private":
+        conversation_memory[key] = await restore_dialogue(update)
+    await handle_photo(update, context, conversation_memory)
+
+
 async def handle_message(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE
@@ -351,6 +361,7 @@ def main():
     app.add_error_handler(log_error)
     app.add_handler(TypeHandler(Update, capture_incoming), group=-1)
     app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, audio_message))
+    app.add_handler(MessageHandler(filters.PHOTO, photo_message))
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("clear", clear_memory))
