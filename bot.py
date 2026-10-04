@@ -12,12 +12,14 @@ from telegram.ext import (
     CommandHandler,
     ContextTypes,
     MessageHandler,
+    TypeHandler,
     filters,
 )
 
 from database import BACKEND, init_database, add_fact, get_facts
 from storage.supabase_store import StorageError
 from memory import service as automatic_memory
+from memory.journal import send_reply, capture_incoming
 
 
 logging.basicConfig(
@@ -40,7 +42,7 @@ def log_command(handler):
         except StorageError:
             logger.error("Хранилище недоступно; команда не завершена")
             if update.message:
-                await update.message.reply_text("Память сейчас недоступна. Попробуй позже.")
+                await send_reply(update, "Память сейчас недоступна. Попробуй позже.")
             return
         logger.info("Команда обработана, ответ отправлен")
     return wrapper
@@ -124,7 +126,7 @@ async def start(
     if not update.message:
         return
 
-    await update.message.reply_text(
+    await send_reply(update,
         "Хранитель запущен.\n\n"
         "DeepSeek подключён.\n"
         "Оперативная и долговременная память подключены."
@@ -143,7 +145,7 @@ async def clear_memory(
 
     conversation_memory[(user_id, update.effective_chat.id)] = []
 
-    await update.message.reply_text(
+    await send_reply(update,
         "Память текущего диалога очищена.\n"
         "Долговременная память сохранена."
     )
@@ -160,12 +162,12 @@ async def remember(
     user_id = update.effective_user.id
 
     if update.effective_chat.type != "private":
-        await update.message.reply_text("Сохраняй личную память в личном чате с ботом.")
+        await send_reply(update, "Сохраняй личную память в личном чате с ботом.")
         return
     fact_text = " ".join(context.args).strip()
 
     if not fact_text:
-        await update.message.reply_text(
+        await send_reply(update,
             "После /remember напиши факт, который нужно сохранить.\n\n"
             "Например:\n"
             "/remember Мой любимый автомобиль — Porsche."
@@ -181,7 +183,7 @@ async def remember(
         confidence=1.0
     )
 
-    await update.message.reply_text(
+    await send_reply(update,
         "Факт сохранён в долговременной памяти."
     )
 
@@ -196,18 +198,18 @@ async def show_memory(
 
     user_id = update.effective_user.id
     if update.effective_chat.type != "private":
-        await update.message.reply_text("Личную память можно посмотреть в личном чате с ботом.")
+        await send_reply(update, "Личную память можно посмотреть в личном чате с ботом.")
         return
     if BACKEND == "supabase":
         text = "Память (последние записи):\n\n" + await automatic_memory.context(user_id)
         for offset in range(0, len(text), 3500):
-            await update.message.reply_text(text[offset:offset + 3500])
+            await send_reply(update, text[offset:offset + 3500])
         return
 
     facts = await asyncio.to_thread(get_facts, user_id)
 
     if not facts:
-        await update.message.reply_text(
+        await send_reply(update,
             "В долговременной памяти пока нет фактов."
         )
         return
@@ -222,7 +224,7 @@ async def show_memory(
             f"  Уверенность: {fact['confidence']}\n\n"
         )
 
-    await update.message.reply_text(text)
+    await send_reply(update, text)
 
 
 async def handle_message(
@@ -314,7 +316,7 @@ async def handle_message(
         if len(history) > MAX_HISTORY:
             history[:] = history[-MAX_HISTORY:]
 
-        await update.message.reply_text(answer)
+        await send_reply(update, answer)
         logger.info("Ответ отправлен в Telegram: %d символов, всего %.1f с", len(answer), time.monotonic() - started)
 
     except Exception as error:
@@ -323,7 +325,7 @@ async def handle_message(
         if history and history[-1]["role"] == "user":
             history.pop()
 
-        await update.message.reply_text(
+        await send_reply(update,
             "Не удалось обработать сообщение. "
             "Ошибка записана в консоли."
         )
@@ -343,6 +345,7 @@ def main():
 
     app = Application.builder().token(TELEGRAM_TOKEN).post_init(telegram_ready).build()
     app.add_error_handler(log_error)
+    app.add_handler(TypeHandler(Update, capture_incoming), group=-1)
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("clear", clear_memory))
