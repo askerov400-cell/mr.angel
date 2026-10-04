@@ -26,7 +26,7 @@ class BotMemoryTests(unittest.IsolatedAsyncioTestCase):
                 patch.object(bot.automatic_memory, "context", new=AsyncMock(return_value="FACT: synthetic")), \
                 patch.object(bot.deepseek.chat.completions, "create", new=AsyncMock(return_value=response)) as answer:
             await bot.handle_message(incoming, ctx)
-            process.assert_awaited_once_with(12, "Synthetic message")
+            process.assert_awaited_once_with(12, "Synthetic message", history=[])
             system = answer.call_args.kwargs["messages"][1]["content"]
             self.assertIn("FACT: synthetic", system)
             self.assertIn("saved", system)

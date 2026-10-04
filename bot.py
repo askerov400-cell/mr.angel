@@ -249,7 +249,7 @@ async def handle_message(
         if update.effective_chat.type != "private":
             long_term_memory = "Личная память в групповых чатах не используется."
         elif BACKEND == "supabase":
-            memory_status = await automatic_memory.process(user_id, user_text)
+            memory_status = await automatic_memory.process(user_id, user_text, history=history[:-1])
             long_term_memory = await automatic_memory.context(user_id)
         else:
             long_term_memory = await asyncio.to_thread(build_long_term_memory, user_id)
