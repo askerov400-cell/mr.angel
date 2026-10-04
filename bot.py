@@ -20,7 +20,7 @@ from telegram.ext import (
 from database import BACKEND, init_database, add_fact, get_facts
 from storage.supabase_store import StorageError
 from memory import service as automatic_memory
-from memory.journal import send_reply, capture_incoming
+from memory.journal import send_reply, capture_incoming, restore_dialogue
 from memory.commands import PATTERN as COMMAND_PATTERN, parse as parse_command
 
 
@@ -239,7 +239,10 @@ async def handle_message(
 
     dialogue_key = (user_id, update.effective_chat.id)
     if dialogue_key not in conversation_memory:
-        conversation_memory[dialogue_key] = []
+        if BACKEND == "supabase" and update.effective_chat.type == "private":
+            conversation_memory[dialogue_key] = await restore_dialogue(update)
+        else:
+            conversation_memory[dialogue_key] = []
 
     history = conversation_memory[dialogue_key]
 
