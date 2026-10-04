@@ -32,6 +32,14 @@ class ValidationTests(unittest.TestCase):
 
 
 class ProcessingTests(unittest.IsolatedAsyncioTestCase):
+    async def test_bare_numbers_never_call_model_or_write(self):
+        with patch("memory_classifier.classify_memory", new=AsyncMock()) as model, \
+                patch.object(service, "save_automatic") as save:
+            for text in ("77", "75.5", "77 кг", " 77 ", "77%"):
+                self.assertEqual(await service.process(12, text), "needs_context")
+            model.assert_not_awaited()
+            save.assert_not_called()
+
     async def test_invalid_classification_never_writes(self):
         with patch("memory_classifier.classify_memory", new=AsyncMock(return_value=[])), \
                 patch.object(service, "save_automatic") as save:

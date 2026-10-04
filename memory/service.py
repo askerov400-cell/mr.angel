@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import re
 
 from memory.validation import validate
 from storage.supabase_store import recent_memory, save_automatic
@@ -11,6 +12,9 @@ logger = logging.getLogger("guardian")
 
 
 async def process(user_id, text):
+    if re.fullmatch(r"\s*[+-]?\d+(?:[.,]\d+)?\s*(?:кг|kg|г|g|см|cm|м|m|лет|%|₽|₸|руб|тенге)?\s*[.!?]?\s*", text, re.IGNORECASE):
+        logger.info("Память: числу нужен контекст")
+        return "needs_context"
     from memory_classifier import classify_memory
     try:
         raw = await asyncio.wait_for(classify_memory(text), timeout=20)
