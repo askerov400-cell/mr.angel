@@ -1,4 +1,5 @@
 import os
+import asyncio
 import logging
 import time
 from functools import wraps
@@ -14,7 +15,8 @@ from telegram.ext import (
     filters,
 )
 
-from database import init_database, add_fact, get_facts
+from database import BACKEND, init_database, add_fact, get_facts
+from storage.supabase_store import StorageError
 
 
 logging.basicConfig(
@@ -32,7 +34,13 @@ def log_command(handler):
     @wraps(handler)
     async def wrapper(update, context):
         logger.info("Команда /%s получена", handler.__name__.replace("show_memory", "memory").replace("clear_memory", "clear"))
-        await handler(update, context)
+        try:
+            await handler(update, context)
+        except StorageError:
+            logger.error("Хранилище недоступно; команда не завершена")
+            if update.message:
+                await update.message.reply_text("Память сейчас недоступна. Попробуй позже.")
+            return
         logger.info("Команда обработана, ответ отправлен")
     return wrapper
 
@@ -160,7 +168,8 @@ async def remember(
         )
         return
 
-    add_fact(
+    await asyncio.to_thread(
+        add_fact,
         telegram_user_id=user_id,
         category="user_fact",
         fact_text=fact_text,
@@ -183,7 +192,7 @@ async def show_memory(
 
     user_id = update.effective_user.id
 
-    facts = get_facts(user_id)
+    facts = await asyncio.to_thread(get_facts, user_id)
 
     if not facts:
         await update.message.reply_text(
@@ -236,9 +245,8 @@ async def handle_message(
     if len(history) > MAX_HISTORY:
         history[:] = history[-MAX_HISTORY:]
 
-    long_term_memory = build_long_term_memory(user_id)
-
     try:
+        long_term_memory = await asyncio.to_thread(build_long_term_memory, user_id)
         await context.bot.send_chat_action(
             chat_id=update.effective_chat.id,
             action="typing"
@@ -291,7 +299,7 @@ async def handle_message(
             history.pop()
 
         await update.message.reply_text(
-            "Не удалось получить ответ от DeepSeek. "
+            "Не удалось обработать сообщение. "
             "Ошибка записана в консоли."
         )
 
@@ -303,7 +311,7 @@ def main():
 
     print("Хранитель запускается...")
     print("Оперативная память включена.")
-    print("Долговременная память SQLite подключена.")
+    logger.info("Хранилище проверено: %s", BACKEND)
 
     app = Application.builder().token(TELEGRAM_TOKEN).post_init(telegram_ready).build()
     app.add_error_handler(log_error)
