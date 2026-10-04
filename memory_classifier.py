@@ -1,5 +1,6 @@
 import os
 import json
+import math
 
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
@@ -142,10 +143,11 @@ async def classify_memory(text: str) -> dict:
                 "content": text
             }
         ],
-        temperature=0
+        temperature=0,
+        response_format={"type": "json_object"},
     )
 
-    raw = response.choices[0].message.content.strip()
+    raw = (response.choices[0].message.content or "").strip()
 
     if raw.startswith("```"):
         raw = raw.replace("```json", "")
@@ -166,6 +168,9 @@ async def classify_memory(text: str) -> dict:
             "reason": "Не удалось разобрать ответ классификатора"
         }
 
+    if not isinstance(result, dict):
+        return {"type": "IGNORE"}
+
     memory_type = str(
         result.get("type", "IGNORE")
     ).upper()
@@ -182,11 +187,8 @@ async def classify_memory(text: str) -> dict:
     if memory_type not in allowed_types:
         memory_type = "IGNORE"
 
-    try:
-        confidence = float(
-            result.get("confidence", 0)
-        )
-    except (TypeError, ValueError):
+    confidence = result.get("confidence", 0)
+    if isinstance(confidence, bool) or not isinstance(confidence, (int, float)) or not math.isfinite(confidence):
         confidence = 0.0
 
     confidence = max(
@@ -215,9 +217,7 @@ async def classify_memory(text: str) -> dict:
         "category": str(
             result.get("category", "other")
         ),
-        "memory_text": str(
-            result.get("memory_text", "")
-        ).strip(),
+        "memory_text": result.get("memory_text", "").strip() if isinstance(result.get("memory_text"), str) else "",
         "state_key": state_key,
         "state_value": state_value,
         "state_unit": state_unit,

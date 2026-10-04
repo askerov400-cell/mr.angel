@@ -18,7 +18,7 @@ def _user_id(value):
     return value
 
 
-def _request(table, params=None, record=None):
+def _request(table, params=None, record=None, prefer="return=representation"):
     base = os.getenv("SUPABASE_URL", "").rstrip("/")
     parsed = urlparse(base)
     key = os.getenv("SUPABASE_SECRET_KEY", "")
@@ -38,7 +38,7 @@ def _request(table, params=None, record=None):
         url += "?" + urlencode(params)
     data = None
     if record is not None:
-        headers["Prefer"] = "return=representation"
+        headers["Prefer"] = prefer
         data = json.dumps(record, allow_nan=False).encode("utf-8")
     request = Request(url, data=data, headers=headers)
     try:
@@ -118,3 +118,39 @@ def add_event(telegram_user_id, category, event_text, event_date=None, source="u
 
 def get_events(telegram_user_id):
     return _read("events", telegram_user_id)
+
+
+def save_automatic(user_id, item):
+    owner = _user_id(user_id)
+    if item["type"] == "STATE":
+        rows = _request("rpc/save_user_state", record={
+            "p_user_id": owner, "p_key": item["state_key"],
+            "p_value": item["state_value"], "p_category": item["category"],
+            "p_unit": item["state_unit"], "p_confidence": item["confidence"],
+        })
+        if len(rows) != 1 or not isinstance(rows[0].get("saved"), bool):
+            raise StorageError("Supabase did not confirm the state operation")
+        return rows[0]["saved"]
+    rows = _request("memory_entries", params={
+        "on_conflict": "telegram_user_id,memory_type,text_hash",
+    }, record={
+        "telegram_user_id": owner, "memory_type": item["type"],
+        "category": item["category"], "memory_text": item["memory_text"],
+        "confidence": item["confidence"],
+    }, prefer="resolution=ignore-duplicates,return=representation")
+    return bool(rows)
+
+
+def recent_memory(user_id):
+    owner = _user_id(user_id)
+    groups = {}
+    for table, order in (("facts", "id.desc"), ("memory_entries", "id.desc"),
+                         ("user_states", "updated_at.desc,state_key.asc")):
+        rows = _request(table, {
+            "select": "*", "telegram_user_id": f"eq.{owner}",
+            "order": order, "limit": "30",
+        })
+        if any(row.get("telegram_user_id") != owner for row in rows):
+            raise StorageError("Supabase returned records for another user")
+        groups[table] = rows
+    return groups
