@@ -21,6 +21,7 @@ from database import BACKEND, init_database, add_fact, get_facts
 from storage.supabase_store import StorageError
 from memory import service as automatic_memory
 from memory.journal import send_reply, capture_incoming
+from memory.commands import PATTERN as COMMAND_PATTERN, parse as parse_command
 
 
 logging.basicConfig(
@@ -211,6 +212,14 @@ async def show_memory(
     await send_reply(update, text)
 
 
+async def handle_formatted_command(update, context):
+    command = parse_command(update.message.text, context.bot.username)
+    if command == "memory":
+        await show_memory(update, context)
+    elif command == "clear":
+        await clear_memory(update, context)
+
+
 async def handle_message(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE
@@ -335,6 +344,10 @@ def main():
     app.add_handler(CommandHandler("clear", clear_memory))
     app.add_handler(CommandHandler("remember", remember))
     app.add_handler(CommandHandler("memory", show_memory))
+    app.add_handler(MessageHandler(
+        filters.Regex(COMMAND_PATTERN) & ~filters.COMMAND,
+        handle_formatted_command,
+    ))
 
     app.add_handler(
         MessageHandler(
