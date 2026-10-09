@@ -27,6 +27,7 @@ from speech.handler import handle_audio
 from vision.handler import handle_photo
 from video.handler import handle_video
 from interface import menu as interface
+from kaspi import handlers as kaspi_ui
 from acquaintance import handlers as acquaintance_ui
 from acquaintance import worker as acquaintance_worker
 
@@ -64,6 +65,7 @@ async def telegram_ready(app):
             BotCommand('remember','Сохранить важный факт'),BotCommand('clear','Начать новый диалог'),
             BotCommand('cancel','Отменить текущее действие'),
             BotCommand('questions','Знакомство и вопросы'),
+            BotCommand('kaspi','Заказы Kaspi'),
         ],scope=BotCommandScopeAllPrivateChats())
     except Exception as error:
         logger.warning('Меню команд недоступно (%s)',type(error).__name__)
@@ -75,6 +77,13 @@ async def telegram_ready(app):
         logger.info("Видео: FFmpeg готов")
     except Exception as error:
         logger.warning("Видео: декодер недоступен (%s)", type(error).__name__)
+    if os.getenv("KASPI_API_TOKEN") and os.getenv("KASPI_OWNER_ID"):
+        try:
+            from kaspi.client import orders as kaspi_orders
+            await asyncio.to_thread(kaspi_orders, "NEW")
+            logger.info("Kaspi: API чтения заказов проверен")
+        except Exception as error:
+            logger.warning("Kaspi: API не подтверждён (%s)", type(error).__name__)
     logger.info("Telegram проверен: @%s", app.bot.username)
     logger.info("Запускается получение сообщений. Остановка: Ctrl+C")
 
@@ -400,6 +409,8 @@ def main():
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("menu", start))
+    app.add_handler(CommandHandler("kaspi", kaspi_ui.panel))
+    app.add_handler(CallbackQueryHandler(kaspi_ui.callback,pattern=r"^kaspi:"))
     app.add_handler(CommandHandler("questions", acquaintance_ui.panel))
     app.add_handler(CallbackQueryHandler(acquaintance_ui.callback,pattern=r"^aq:"))
     app.add_handler(CommandHandler("cancel", interface.cancel))

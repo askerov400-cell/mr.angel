@@ -10,11 +10,12 @@ SAVE='➕ Запомнить'
 NEW='🔄 Новый диалог'
 HELP='❔ Помощь'
 QUESTIONS='🤝 Знакомство'
-LABELS={CHAT,MEMORY,SAVE,NEW,HELP,QUESTIONS}
+KASPI='🛍 Kaspi'
+LABELS={CHAT,MEMORY,SAVE,NEW,HELP,QUESTIONS,KASPI}
 SERVICE_PREFIXES=('Знакомство\n','Хранитель\n','Возможности Хранителя\n','Запись в память\n','Новый диалог\n','Общение\n','Действие отменено.','Подтверждение уже не действует.')
 
 def keyboard():
-    return ReplyKeyboardMarkup([[CHAT,MEMORY],[SAVE,QUESTIONS],[NEW,HELP]],resize_keyboard=True,is_persistent=True,input_field_placeholder='Напиши сообщение Хранителю')
+    return ReplyKeyboardMarkup([[CHAT,MEMORY],[SAVE,QUESTIONS],[NEW,HELP],[KASPI]],resize_keyboard=True,is_persistent=True,input_field_placeholder='Напиши сообщение Хранителю')
 
 def private(update):
     return bool(update.effective_user and update.effective_chat and update.effective_chat.type=='private' and update.effective_user.id==update.effective_chat.id)
@@ -38,7 +39,10 @@ async def text(update,context,handlers):
     content=update.message.text.strip()
     if content in LABELS:
         data.pop('interface_input',None);data.pop('interface_clear',None)
-        if content==QUESTIONS:
+        if content==KASPI:
+            from kaspi.handlers import panel
+            await panel(update,context)
+        elif content==QUESTIONS:
             from acquaintance.handlers import panel
             await panel(update,context)
         elif content==MEMORY:
