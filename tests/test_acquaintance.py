@@ -118,3 +118,11 @@ class CallbackTests(unittest.IsolatedAsyncioTestCase):
         worker=Scheduler(NS(send_message=AsyncMock()),NS())
         with patch.object(worker,'ensure_plan',new=AsyncMock()),patch.object(store,'action',new=AsyncMock(return_value=[])),patch.object(questions,'generate',new=AsyncMock()) as generate:
             await worker.deliver(12,manual=True);worker.bot.send_message.assert_not_awaited();generate.assert_not_awaited()
+
+class VoiceAnswerTests(unittest.IsolatedAsyncioTestCase):
+    async def test_voice_reply_uses_transcript_and_same_question(self):
+        request=incoming();request.message.text=None
+        with patch.dict(os.environ,{'MEMORY_BACKEND':'supabase'}),patch.object(store,'action',new=AsyncMock(side_effect=[[{'id':QID,'status':'sent'}],[{'saved':True}]])) as call,patch.object(handlers,'send_reply',new=AsyncMock()) as reply:
+            self.assertTrue(await handlers.answer(request,NS(bot=NS(id=99)),text='Synthetic voice answer'))
+            self.assertEqual(call.await_args.kwargs,{'text':'Synthetic voice answer'})
+            self.assertIn('Распознал',reply.await_args.args[1])

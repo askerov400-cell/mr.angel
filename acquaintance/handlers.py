@@ -83,7 +83,7 @@ async def callback(update, context):
         logger.warning('Знакомство: действие не выполнено (%s)',type(error).__name__)
         await send_reply(proxy,'Знакомство\nНе удалось подтвердить действие. Ответ ещё не подтверждён; попробуй позже.')
 
-async def answer(update, context):
+async def answer(update, context, text=None):
     if not private(update) or not available():
         return False
     reply = getattr(update.message,'reply_to_message',None)
@@ -100,14 +100,15 @@ async def answer(update, context):
         if question['status'] not in ('sending','sent'):
             await send_reply(update,'Знакомство\nЭтот вопрос пропущен. Ответ не записан.')
             return True
-        text = redact(update.message.text.strip())
+        voice_answer = text is not None
+        text = redact((text if text is not None else update.message.text).strip())
         if not 1 <= len(text) <= 1400:
             await send_reply(update,'Знакомство\nНапиши ответ длиной до 1400 символов, ответом на тот же вопрос.')
             return True
         saved = await store.action(update.effective_user.id,'answer',question['id'],text=text)
         if not saved or not saved[0].get('saved'):
             raise RuntimeError('Answer was not confirmed')
-        await send_reply(update,'Знакомство\nОтвет сохранён в долговременной памяти.')
+        await send_reply(update,'Знакомство\n'+('Распознал: «'+text+'»\n' if voice_answer else '')+'Ответ сохранён в долговременной памяти.')
         return True
     except Exception as error:
         logger.warning('Знакомство: ответ не подтверждён (%s)',type(error).__name__)

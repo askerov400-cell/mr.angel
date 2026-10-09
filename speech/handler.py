@@ -1,6 +1,7 @@
 """Bounded audio download and transcription; no audio persistence."""
 import asyncio
 import logging
+import math
 import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -20,9 +21,25 @@ async def transcribe(path, key):
         with path.open("rb") as audio:
             result = await client.audio.transcriptions.create(
                 model="whisper-large-v3-turbo", file=audio,
-                response_format="json", temperature=0,
+                response_format="verbose_json", timestamp_granularities=["segment"], temperature=0,
             )
-    return result.text.strip()
+    return reliable_text(result)
+
+
+def reliable_text(result):
+    """Conservatively reject silence, low confidence and repetitive hallucinations."""
+    parts = []
+    for segment in getattr(result, 'segments', None) or []:
+        field = segment.get if isinstance(segment, dict) else lambda name: getattr(segment, name, None)
+        scores = [field('no_speech_prob'), field('avg_logprob'), field('compression_ratio')]
+        if any(not isinstance(value, (int, float)) or not math.isfinite(value) for value in scores):
+            continue
+        if scores[0] >= 0.6 or scores[1] < -1 or scores[2] > 2.4:
+            continue
+        text = field('text')
+        if isinstance(text, str) and text.strip():
+            parts.append(text.strip())
+    return ' '.join(parts)
 
 
 async def handle_audio(update, context, respond):

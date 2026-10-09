@@ -24,7 +24,7 @@ async def home(update,context):
         await send_reply(update,'Открой личный чат со мной, чтобы работать с памятью.');return
     context.user_data.pop('interface_input',None)
     context.user_data.pop('interface_clear',None)
-    await send_reply(update,'Хранитель\n\nНапиши сообщение, пришли голосовое или фото.\n\nКнопки внизу помогут посмотреть память, сохранить важное и начать новый диалог.',reply_markup=keyboard())
+    await send_reply(update,'Хранитель\n\nНапиши сообщение, пришли голосовое, фото или видео.\n\nКнопки внизу помогут посмотреть память, сохранить важное и начать новый диалог.',reply_markup=keyboard())
 
 async def cancel(update,context):
     if not private(update):return
@@ -50,9 +50,9 @@ async def text(update,context,handlers):
             token=secrets.token_hex(8);data['interface_clear']=token
             await send_reply(update,'Новый диалог\n\nНачать общение с чистого контекста? Сохранённые факты и история переписки останутся.',reply_markup=M([[B('Начать новый диалог',callback_data='guardian:clear:'+token)],[B('Отмена',callback_data='guardian:cancel')]]))
         elif content==HELP:
-            await send_reply(update,'Возможности Хранителя\n\n💬 Общение — текст, голосовые и фотографии.\n🧠 Моя память — сохранённые сведения о тебе.\n➕ Запомнить — явно сохранить важный факт.\n🔄 Новый диалог — начать новую тему, сохранив факты.\n\n🤝 Знакомство — вопросы по расписанию, пауза и ответы в память.\n\nКоманды: /questions, /menu, /memory, /remember текст, /clear, /cancel.\nЗапись фактов из обычного общения зависит от настроенного режима памяти.',reply_markup=keyboard())
+            await send_reply(update,'Возможности Хранителя\n\n💬 Общение — текст, голосовые, фотографии и видео до 2 минут/18 МБ.\n🧠 Моя память — сохранённые сведения о тебе.\n➕ Запомнить — явно сохранить важный факт.\n🔄 Новый диалог — начать новую тему, сохранив факты.\n\n🤝 Знакомство — вопросы по расписанию, пауза и ответы в память.\n\nКоманды: /questions, /menu, /memory, /remember текст, /clear, /cancel.\nЗапись фактов из обычного общения зависит от настроенного режима памяти.',reply_markup=keyboard())
         else:
-            await send_reply(update,'Общение\n\nНапиши, что хочешь обсудить. Можно отправить голосовое или фото.',reply_markup=keyboard())
+            await send_reply(update,'Общение\n\nНапиши, что хочешь обсудить. Можно отправить голосовое, фото или видео.',reply_markup=keyboard())
         return True
     if data.get('interface_input')=='remember':
         args=getattr(context,'args',None)

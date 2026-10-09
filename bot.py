@@ -25,6 +25,7 @@ from memory.journal import send_reply, capture_incoming, restore_dialogue
 from memory.commands import PATTERN as COMMAND_PATTERN, parse as parse_command
 from speech.handler import handle_audio
 from vision.handler import handle_photo
+from video.handler import handle_video
 from interface import menu as interface
 from acquaintance import handlers as acquaintance_ui
 from acquaintance import worker as acquaintance_worker
@@ -68,6 +69,12 @@ async def telegram_ready(app):
         logger.warning('Меню команд недоступно (%s)',type(error).__name__)
     if BACKEND == "supabase":
         await acquaintance_worker.start(app, deepseek)
+    try:
+        from video.extract import run as check_decoder
+        await check_decoder("-version", timeout=10)
+        logger.info("Видео: FFmpeg готов")
+    except Exception as error:
+        logger.warning("Видео: декодер недоступен (%s)", type(error).__name__)
     logger.info("Telegram проверен: @%s", app.bot.username)
     logger.info("Запускается получение сообщений. Остановка: Ctrl+C")
 
@@ -232,7 +239,22 @@ async def handle_formatted_command(update, context):
 
 
 async def audio_message(update, context):
-    await handle_audio(update, context, handle_text)
+    await handle_audio(update, context, audio_text)
+
+
+async def audio_text(update, context, text):
+    if await acquaintance_ui.answer(update, context, text=text):
+        return
+    await handle_text(update, context, text)
+
+
+async def video_message(update, context):
+    if not update.effective_user or not update.effective_chat:
+        return
+    key = (update.effective_user.id, update.effective_chat.id)
+    if key not in conversation_memory and BACKEND == "supabase" and update.effective_chat.type == "private":
+        conversation_memory[key] = await restore_dialogue(update)
+    await handle_video(update, context, conversation_memory)
 
 
 async def photo_message(update, context):
@@ -373,6 +395,8 @@ def main():
     app.add_handler(TypeHandler(Update, capture_incoming), group=-1)
     app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, audio_message))
     app.add_handler(MessageHandler(filters.PHOTO, photo_message))
+    video_files = filters.Document.FileExtension("mp4") | filters.Document.FileExtension("mov") | filters.Document.FileExtension("webm")
+    app.add_handler(MessageHandler(filters.VIDEO | filters.VIDEO_NOTE | video_files, video_message))
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("menu", start))
