@@ -7,10 +7,11 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
-from telegram import Update
+from telegram import Update, BotCommand, BotCommandScopeAllPrivateChats
 from telegram.ext import (
     Application,
     CommandHandler,
+    CallbackQueryHandler,
     ContextTypes,
     MessageHandler,
     TypeHandler,
@@ -24,6 +25,7 @@ from memory.journal import send_reply, capture_incoming, restore_dialogue
 from memory.commands import PATTERN as COMMAND_PATTERN, parse as parse_command
 from speech.handler import handle_audio
 from vision.handler import handle_photo
+from interface import menu as interface
 
 
 logging.basicConfig(
@@ -53,6 +55,14 @@ def log_command(handler):
 
 
 async def telegram_ready(app):
+    try:
+        await app.bot.set_my_commands([
+            BotCommand('menu','Главное меню'),BotCommand('memory','Моя память'),
+            BotCommand('remember','Сохранить важный факт'),BotCommand('clear','Начать новый диалог'),
+            BotCommand('cancel','Отменить текущее действие'),
+        ],scope=BotCommandScopeAllPrivateChats())
+    except Exception as error:
+        logger.warning('Меню команд недоступно (%s)',type(error).__name__)
     logger.info("Telegram проверен: @%s", app.bot.username)
     logger.info("Запускается получение сообщений. Остановка: Ctrl+C")
 
@@ -106,18 +116,11 @@ def build_long_term_memory(user_id):
 
 
 @log_command
-async def start(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
-):
-    if not update.message:
-        return
+async def start(update,context):
+    if update.message:await interface.home(update,context)
 
-    await send_reply(update,
-        "Хранитель запущен.\n\n"
-        "DeepSeek подключён.\n"
-        "Оперативная и долговременная память подключены."
-    )
+async def menu_callback(update,context):
+    await interface.callback(update,context,clear_memory)
 
 
 @log_command
@@ -211,7 +214,8 @@ async def show_memory(
             f"  Уверенность: {fact['confidence']}\n\n"
         )
 
-    await send_reply(update, text)
+    for offset in range(0,len(text),3500):
+        await send_reply(update,text[offset:offset+3500])
 
 
 async def handle_formatted_command(update, context):
@@ -247,6 +251,7 @@ async def handle_message(
     ):
         return
 
+    if await interface.text(update,context,{"memory":show_memory,"remember":remember}):return
     await handle_text(update, context, update.message.text)
 
 
@@ -364,6 +369,9 @@ def main():
     app.add_handler(MessageHandler(filters.PHOTO, photo_message))
 
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("menu", start))
+    app.add_handler(CommandHandler("cancel", interface.cancel))
+    app.add_handler(CallbackQueryHandler(menu_callback,pattern=r"^guardian:"))
     app.add_handler(CommandHandler("clear", clear_memory))
     app.add_handler(CommandHandler("remember", remember))
     app.add_handler(CommandHandler("memory", show_memory))

@@ -45,8 +45,8 @@ async def capture_incoming(update, context):
     await record(update, "user", update.message)
 
 
-async def send_reply(update, text):
-    sent = await update.message.reply_text(text)
+async def send_reply(update, text, **kwargs):
+    sent = await update.message.reply_text(text, **kwargs)
     await record(update, "assistant", sent)
     return sent
 
@@ -62,10 +62,14 @@ def dialogue_from_rows(rows, current_message_id, limit=20):
             result = []
             continue
         if role == "user":
-            is_command = text.strip().startswith("/")
+            from interface.menu import LABELS
+            is_command = text.strip().startswith("/") or text.strip() in LABELS
             skip_service_replies = is_command
             if is_command:
                 continue
+        if role == "assistant":
+            from interface.menu import SERVICE_PREFIXES
+            if text.startswith(SERVICE_PREFIXES):continue
         if role == "assistant" and skip_service_replies:
             continue
         if role in ("user", "assistant"):
