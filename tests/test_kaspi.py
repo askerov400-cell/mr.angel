@@ -145,3 +145,13 @@ class DiagnosisTests(unittest.TestCase):
             with self.assertRaises(client.KaspiError) as caught:client.request(payload={"data":{}})
         self.assertEqual(build.return_value.open.call_count,1)
         self.assertEqual(caught.exception.code,"timeout")
+
+class NetworkTests(unittest.TestCase):
+    def test_dns_failure_safe(self):
+        import socket
+        from urllib.error import URLError
+        with patch.dict("os.environ",{"KASPI_API_TOKEN":"key"}),patch.object(client,"build_opener") as build:
+            build.return_value.open.side_effect=URLError(socket.gaierror(-2,"private"))
+            with self.assertRaises(client.KaspiError) as caught:client.request()
+        self.assertEqual(caught.exception.code,"dns")
+        self.assertNotIn("private",str(caught.exception))

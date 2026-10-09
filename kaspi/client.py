@@ -58,6 +58,12 @@ def request(params=None, payload=None):
             code,message="timeout","Kaspi не ответил за 20 секунд. Попробуй позже."
         elif isinstance(error.reason,ssl.SSLError):
             code,message="tls","Не удалось установить защищённое соединение с Kaspi."
+        elif isinstance(error.reason,socket.gaierror):
+            code,message="dns","Railway не смог определить адрес сервера Kaspi."
+        elif isinstance(error.reason,ConnectionRefusedError):
+            code,message="connection_refused","Сервер Kaspi отклонил сетевое соединение с Railway."
+        elif isinstance(error.reason,ConnectionResetError):
+            code,message="connection_reset","Соединение с Kaspi было прервано сервером."
         else:
             code,message="network","Railway не смог соединиться с Kaspi. Проверяем доступ к серверу."
         raise failure(code,message,changing) from None
