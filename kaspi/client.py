@@ -2,6 +2,9 @@
 import json
 import os
 import re
+import logging
+import ssl
+import socket
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
 from urllib.request import Request, build_opener, HTTPRedirectHandler
@@ -16,7 +19,16 @@ STATUS = {"APPROVED_BY_BANK":"Ожидает приёма", "ACCEPTED_BY_MERCHAN
           "COMPLETED":"Завершён","CANCELLED":"Отменён","CANCELLING":"Отменяется",
           "KASPI_DELIVERY_RETURN_REQUESTED":"Запрошен возврат","RETURNED":"Возвращён"}
 class KaspiError(Exception):
-    pass
+    def __init__(self, message, code="request_failed"):
+        super().__init__(message)
+        self.code=code
+
+def failure(code, message, changing):
+    logging.getLogger("guardian").warning("Kaspi: %s",code)
+    if changing:
+        message="Результат изменения не подтверждён. Проверь заказ в кабинете Kaspi; автоматического повтора нет."
+    return KaspiError(message,code)
+
 class NoRedirect(HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         return None
@@ -29,25 +41,38 @@ def request(params=None, payload=None):
     if params:url+="?"+urlencode(params)
     req=Request(url, data=json.dumps(payload).encode() if payload is not None else None,
                 headers={"X-Auth-Token":token,"Content-Type":"application/vnd.api+json"})
+    changing=payload is not None
     try:
         with build_opener(NoRedirect()).open(req,timeout=20) as response:
             raw=response.read(2*1024*1024+1)
-        if len(raw)>2*1024*1024:raise ValueError()
-        result=json.loads(raw)
-        if not isinstance(result,dict) or "data" not in result:raise ValueError()
-        return result["data"]
     except HTTPError as error:
         code=error.code
         error.close()
-        if payload is not None:
-            raise KaspiError("Изменение не подтверждено. Проверь заказ в кабинете Kaspi перед повторной попыткой.") from None
-        if code in (401,403):
-            raise KaspiError("Kaspi отклонил доступ. Проверь API-токен.") from None
-        raise KaspiError("Kaspi сейчас не ответил успешно. Попробуй позже.") from None
-    except (URLError,TimeoutError,OSError,ValueError,TypeError):
-        message=("Результат изменения неизвестен. Проверь заказ в кабинете Kaspi; автоматического повтора нет."
-                 if payload is not None else "Не удалось получить корректный ответ Kaspi. Попробуй позже.")
-        raise KaspiError(message) from None
+        message=("Kaspi отклонил доступ. Проверь API-токен." if code in (401,403)
+                 else f"Kaspi вернул HTTP {code}. Попробуй позже.")
+        raise failure(f"http_{code}",message,changing) from None
+    except (TimeoutError,socket.timeout):
+        raise failure("timeout","Kaspi не ответил за 20 секунд. Попробуй позже.",changing) from None
+    except URLError as error:
+        if isinstance(error.reason,(TimeoutError,socket.timeout)):
+            code,message="timeout","Kaspi не ответил за 20 секунд. Попробуй позже."
+        elif isinstance(error.reason,ssl.SSLError):
+            code,message="tls","Не удалось установить защищённое соединение с Kaspi."
+        else:
+            code,message="network","Railway не смог соединиться с Kaspi. Проверяем доступ к серверу."
+        raise failure(code,message,changing) from None
+    except (OSError,ValueError,TypeError):
+        raise failure("transport","Не удалось отправить запрос Kaspi. Проверь значение API-токена.",changing) from None
+    if len(raw)>2*1024*1024:
+        raise failure("response_too_large","Ответ Kaspi превышает допустимый размер.",changing)
+    try:
+        result=json.loads(raw)
+    except (ValueError,UnicodeError):
+        raise failure("invalid_json","Kaspi вернул ответ в неподдерживаемом формате.",changing) from None
+    if not isinstance(result,dict) or "data" not in result:
+        raise failure("invalid_schema","Kaspi вернул ответ без данных заказов.",changing)
+    return result["data"]
+
 
 def clean(item):
     try:

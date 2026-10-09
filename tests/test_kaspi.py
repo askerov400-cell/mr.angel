@@ -124,3 +124,24 @@ class StatsTests(unittest.IsolatedAsyncioTestCase):
         from kaspi import statistics
         with patch.object(statistics,"orders",side_effect=client.KaspiError("unavailable")):
             with self.assertRaises(client.KaspiError):await statistics.summary()
+
+class DiagnosisTests(unittest.TestCase):
+    def test_timeout_is_distinct_and_safe(self):
+        with patch.dict("os.environ",{"KASPI_API_TOKEN":"key"}),patch.object(client,"build_opener") as build:
+            build.return_value.open.side_effect=TimeoutError("private")
+            with self.assertRaises(client.KaspiError) as caught:client.request()
+        self.assertEqual(caught.exception.code,"timeout")
+        self.assertNotIn("private",str(caught.exception))
+    def test_invalid_json_is_distinct(self):
+        response=MagicMock();response.__enter__.return_value.read.return_value=b"<html>private</html>"
+        with patch.dict("os.environ",{"KASPI_API_TOKEN":"key"}),patch.object(client,"build_opener") as build:
+            build.return_value.open.return_value=response
+            with self.assertRaises(client.KaspiError) as caught:client.request()
+        self.assertEqual(caught.exception.code,"invalid_json")
+        self.assertNotIn("private",str(caught.exception))
+    def test_unknown_mutation_not_retried(self):
+        with patch.dict("os.environ",{"KASPI_API_TOKEN":"key"}),patch.object(client,"build_opener") as build:
+            build.return_value.open.side_effect=TimeoutError("private")
+            with self.assertRaises(client.KaspiError) as caught:client.request(payload={"data":{}})
+        self.assertEqual(build.return_value.open.call_count,1)
+        self.assertEqual(caught.exception.code,"timeout")
