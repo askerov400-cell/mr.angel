@@ -26,6 +26,8 @@ from memory.commands import PATTERN as COMMAND_PATTERN, parse as parse_command
 from speech.handler import handle_audio
 from vision.handler import handle_photo
 from interface import menu as interface
+from acquaintance import handlers as acquaintance_ui
+from acquaintance import worker as acquaintance_worker
 
 
 logging.basicConfig(
@@ -60,9 +62,12 @@ async def telegram_ready(app):
             BotCommand('menu','Главное меню'),BotCommand('memory','Моя память'),
             BotCommand('remember','Сохранить важный факт'),BotCommand('clear','Начать новый диалог'),
             BotCommand('cancel','Отменить текущее действие'),
+            BotCommand('questions','Знакомство и вопросы'),
         ],scope=BotCommandScopeAllPrivateChats())
     except Exception as error:
         logger.warning('Меню команд недоступно (%s)',type(error).__name__)
+    if BACKEND == "supabase":
+        await acquaintance_worker.start(app, deepseek)
     logger.info("Telegram проверен: @%s", app.bot.username)
     logger.info("Запускается получение сообщений. Остановка: Ctrl+C")
 
@@ -252,6 +257,7 @@ async def handle_message(
         return
 
     if await interface.text(update,context,{"memory":show_memory,"remember":remember}):return
+    if await acquaintance_ui.answer(update,context):return
     await handle_text(update, context, update.message.text)
 
 
@@ -362,7 +368,7 @@ def main():
     print("Оперативная память включена.")
     logger.info("Хранилище проверено: %s", BACKEND)
 
-    app = Application.builder().token(TELEGRAM_TOKEN).post_init(telegram_ready).build()
+    app = Application.builder().token(TELEGRAM_TOKEN).post_init(telegram_ready).post_stop(acquaintance_worker.stop).build()
     app.add_error_handler(log_error)
     app.add_handler(TypeHandler(Update, capture_incoming), group=-1)
     app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, audio_message))
@@ -370,6 +376,8 @@ def main():
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("menu", start))
+    app.add_handler(CommandHandler("questions", acquaintance_ui.panel))
+    app.add_handler(CallbackQueryHandler(acquaintance_ui.callback,pattern=r"^aq:"))
     app.add_handler(CommandHandler("cancel", interface.cancel))
     app.add_handler(CallbackQueryHandler(menu_callback,pattern=r"^guardian:"))
     app.add_handler(CommandHandler("clear", clear_memory))

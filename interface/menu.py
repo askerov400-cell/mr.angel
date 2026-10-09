@@ -9,18 +9,19 @@ MEMORY='🧠 Моя память'
 SAVE='➕ Запомнить'
 NEW='🔄 Новый диалог'
 HELP='❔ Помощь'
-LABELS={CHAT,MEMORY,SAVE,NEW,HELP}
-SERVICE_PREFIXES=('Хранитель\n','Возможности Хранителя\n','Запись в память\n','Новый диалог\n','Общение\n','Действие отменено.','Подтверждение уже не действует.')
+QUESTIONS='🤝 Знакомство'
+LABELS={CHAT,MEMORY,SAVE,NEW,HELP,QUESTIONS}
+SERVICE_PREFIXES=('Знакомство\n','Хранитель\n','Возможности Хранителя\n','Запись в память\n','Новый диалог\n','Общение\n','Действие отменено.','Подтверждение уже не действует.')
 
 def keyboard():
-    return ReplyKeyboardMarkup([[CHAT,MEMORY],[SAVE,HELP],[NEW]],resize_keyboard=True,is_persistent=True,input_field_placeholder='Напиши сообщение Хранителю')
+    return ReplyKeyboardMarkup([[CHAT,MEMORY],[SAVE,QUESTIONS],[NEW,HELP]],resize_keyboard=True,is_persistent=True,input_field_placeholder='Напиши сообщение Хранителю')
 
 def private(update):
     return bool(update.effective_user and update.effective_chat and update.effective_chat.type=='private' and update.effective_user.id==update.effective_chat.id)
 
 async def home(update,context):
     if not private(update):
-        await send_reply(proxy,'Подтверждение уже не действует. Нажми «Новый диалог» заново.',reply_markup=keyboard());return
+        await send_reply(update,'Открой личный чат со мной, чтобы работать с памятью.');return
     context.user_data.pop('interface_input',None)
     context.user_data.pop('interface_clear',None)
     await send_reply(update,'Хранитель\n\nНапиши сообщение, пришли голосовое или фото.\n\nКнопки внизу помогут посмотреть память, сохранить важное и начать новый диалог.',reply_markup=keyboard())
@@ -37,7 +38,10 @@ async def text(update,context,handlers):
     content=update.message.text.strip()
     if content in LABELS:
         data.pop('interface_input',None);data.pop('interface_clear',None)
-        if content==MEMORY:
+        if content==QUESTIONS:
+            from acquaintance.handlers import panel
+            await panel(update,context)
+        elif content==MEMORY:
             await handlers['memory'](update,context)
         elif content==SAVE:
             data['interface_input']='remember'
@@ -46,7 +50,7 @@ async def text(update,context,handlers):
             token=secrets.token_hex(8);data['interface_clear']=token
             await send_reply(update,'Новый диалог\n\nНачать общение с чистого контекста? Сохранённые факты и история переписки останутся.',reply_markup=M([[B('Начать новый диалог',callback_data='guardian:clear:'+token)],[B('Отмена',callback_data='guardian:cancel')]]))
         elif content==HELP:
-            await send_reply(update,'Возможности Хранителя\n\n💬 Общение — текст, голосовые и фотографии.\n🧠 Моя память — сохранённые сведения о тебе.\n➕ Запомнить — явно сохранить важный факт.\n🔄 Новый диалог — начать новую тему, сохранив факты.\n\nКоманды: /menu, /memory, /remember текст, /clear, /cancel.\nЗапись фактов из обычного общения зависит от настроенного режима памяти.',reply_markup=keyboard())
+            await send_reply(update,'Возможности Хранителя\n\n💬 Общение — текст, голосовые и фотографии.\n🧠 Моя память — сохранённые сведения о тебе.\n➕ Запомнить — явно сохранить важный факт.\n🔄 Новый диалог — начать новую тему, сохранив факты.\n\n🤝 Знакомство — вопросы по расписанию, пауза и ответы в память.\n\nКоманды: /questions, /menu, /memory, /remember текст, /clear, /cancel.\nЗапись фактов из обычного общения зависит от настроенного режима памяти.',reply_markup=keyboard())
         else:
             await send_reply(update,'Общение\n\nНапиши, что хочешь обсудить. Можно отправить голосовое или фото.',reply_markup=keyboard())
         return True
