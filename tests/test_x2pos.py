@@ -81,12 +81,41 @@ class Tests(unittest.TestCase):
     def test_movement_headers_and_filter(self):
         doc={"id":"33","branch_id":"7","action":"acceptance","total_quantity":2,"total_amount":100,"notes":"private"}
         with patch.dict("os.environ",ENV),patch.object(client,"request",side_effect=[EMP,{"status":"success","procurements":[doc]}]) as request:
-            rows=client.movements("acceptance",1)
+            result=client.movements("acceptance",1)
+            rows=result["rows"]
             self.assertNotIn("notes",rows[0])
+            self.assertFalse(result["has_next"])
             self.assertEqual(request.call_args.args[2],{"User-Id":"8","Branch-Id":"7"})
-        with patch.dict("os.environ",ENV),patch.object(client,"request",side_effect=[EMP,{"status":"success","procurements":[{**doc,"branch_id":"9"}]}]):
-            with self.assertRaises(client.X2Error):
-                client.movements("acceptance",1)
+        foreign={**doc,"id":"44","branch_id":"9"}
+        with patch.dict("os.environ",ENV),patch.object(client,"request",side_effect=[EMP,{"status":"success","procurements":[doc,foreign]}]):
+            result=client.movements("acceptance",1)
+            self.assertEqual([row["id"] for row in result["rows"]],["33"])
+
+    def test_filtered_full_page_keeps_next_page(self):
+        foreign={"id":"44","branch_id":"9","action":"writeoff"}
+        with patch.dict("os.environ",ENV),patch.object(client,"request",side_effect=[EMP,{"status":"success","procurements":[foreign]*10}]):
+            result=client.movements("writeoff",1)
+            self.assertEqual(result["rows"],[])
+            self.assertTrue(result["has_next"])
+
+    def test_invalid_movement_branch_or_action_rejected(self):
+        for row in ({"branch_id":None,"action":"revision"},
+                    {"branch_id":"7","action":"acceptance"}):
+            with self.subTest(row=row),patch.dict("os.environ",ENV),patch.object(client,"request",side_effect=[EMP,{"status":"success","procurements":[row]}]):
+                with self.assertRaises(client.X2Error):
+                    client.movements("revision",1)
+
+    def test_empty_filtered_page_navigation_and_period(self):
+        q=NS(answer=AsyncMock(),message=NS(reply_text=AsyncMock()),data="x2pos:move:writeoff:1")
+        update=NS(effective_user=NS(id=123),effective_chat=NS(id=123,type="private"),callback_query=q)
+        with patch.dict("os.environ",ENV),patch.object(client,"movements",return_value={"rows":[],"has_next":True}):
+            asyncio.run(handlers.callback(update,NS(user_data={})))
+        reply=q.message.reply_text.call_args
+        callbacks=[button.callback_data for line in reply.kwargs["reply_markup"].inline_keyboard for button in line]
+        self.assertIn("x2pos:move:writeoff:2",callbacks)
+        self.assertNotIn("7 дней",reply.args[0])
+        self.assertNotIn("UTC",reply.args[0])
+        self.assertIn("выбранного филиала",reply.args[0])
 
     def test_unauthorized_never_requests(self):
         for owner,chat in ((999,"private"),(123,"group")):

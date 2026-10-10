@@ -144,10 +144,13 @@ def movements(action, page):
         raise X2Error("Некорректный список движений X2POS.")
     result = []
     for row in rows:
-        if not isinstance(row,dict) or str(row.get("branch_id")) != access["branch"] or row.get("action") != action:
+        if not isinstance(row,dict) or row.get("action") != action:
             raise X2Error("Ответ движений не соответствует выбранному разделу.")
+        branch = identifier(row.get("branch_id"))
+        if branch != access["branch"]:
+            continue
         result.append({"id":identifier(row.get("id")), "status":text(row.get("status"),40),
                        "date":text(row.get("procurement_date"),30),
                        "quantity":number(row.get("total_quantity")),
                        "amount":number(row.get("total_amount"))})
-    return result
+    return {"rows":result, "has_next":len(rows)==10}

@@ -63,20 +63,21 @@ async def callback(update, context):
                 ([nav] if nav else [])+list(keyboard().inline_keyboard)))
         elif len(parts)==4 and parts[1]=="move":
             action,page = parts[2],int(parts[3])
-            rows = await asyncio.wait_for(asyncio.to_thread(client.movements,action,page),22)
+            movement_page = await asyncio.wait_for(asyncio.to_thread(client.movements,action,page),22)
+            rows = movement_page["rows"]
             labels={"draft":"Черновик","completed":"Завершён","canceled":"Отменён",
                     "waiting_to_confirm":"Ожидает подтверждения"}
-            lines=[f"X2POS — {client.ACTIONS[action]}\nПоследние 7 дней · страница {page}\nДаты документов: UTC."]
+            lines=[f"X2POS — {client.ACTIONS[action]}\nВыбранный филиал · страница API {page}\nДаты как в X2POS."]
             for row in rows:
                 lines.append(f"Документ № {row['id']} · {row['date']}\n"
                              f"{labels.get(row['status'],'Неизвестный статус')}\n"
                              f"Количество: {row['quantity']} · Сумма: {row['amount']} ₸")
             if not rows:
-                lines.append("Документов на этой странице нет.")
+                lines.append("На этой странице API нет документов выбранного филиала.")
             nav=[]
             if page>1:
                 nav.append(B("Назад",callback_data=f"x2pos:move:{action}:{page-1}"))
-            if len(rows)==10 and page<10000:
+            if movement_page["has_next"] and page<10000:
                 nav.append(B("Далее",callback_data=f"x2pos:move:{action}:{page+1}"))
             await q.message.reply_text("\n\n".join(lines),reply_markup=M(
                 ([nav] if nav else [])+list(keyboard().inline_keyboard)))
