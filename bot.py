@@ -28,6 +28,7 @@ from vision.handler import handle_photo
 from video.handler import handle_video
 from interface import menu as interface
 from kaspi import handlers as kaspi_ui
+from x2pos import handlers as x2pos_ui
 from acquaintance import handlers as acquaintance_ui
 from acquaintance import worker as acquaintance_worker
 
@@ -66,6 +67,7 @@ async def telegram_ready(app):
             BotCommand('cancel','Отменить текущее действие'),
             BotCommand('questions','Знакомство и вопросы'),
             BotCommand('kaspi','Заказы Kaspi'),
+            BotCommand('x2pos','Товары и остатки X2POS'),
         ],scope=BotCommandScopeAllPrivateChats())
     except Exception as error:
         logger.warning('Меню команд недоступно (%s)',type(error).__name__)
@@ -409,6 +411,8 @@ def main():
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("menu", start))
+    app.add_handler(CommandHandler("x2pos", x2pos_ui.panel))
+    app.add_handler(CallbackQueryHandler(x2pos_ui.callback,pattern=r"^x2pos:"))
     app.add_handler(CommandHandler("kaspi", kaspi_ui.panel))
     app.add_handler(CallbackQueryHandler(kaspi_ui.callback,pattern=r"^kaspi:"))
     app.add_handler(CommandHandler("questions", acquaintance_ui.panel))
