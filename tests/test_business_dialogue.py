@@ -17,7 +17,7 @@ class DialogueTests(unittest.IsolatedAsyncioTestCase):
         old=[{'role':'user','content':'Прибыль за сентябрь?'},{'role':'assistant','content':'Нет полного сентября. Пришли выгрузку.'}]
         bot.conversation_memory[(123,123)]=old.copy()
         stamp=datetime.now(analytics.ZONE).isoformat()
-        with patch.dict('os.environ',{'X2POS_OWNER_ID':'123','X2POS_LLM_ENABLED':'1','X2POS_EXPENSES_COMPLETE':'1'}),patch.object(bot,'BACKEND','supabase'),patch.object(dialogue.store,'read',return_value=({'last_success':stamp},days,[])),patch.object(bot.deepseek.chat.completions,'create',new=AsyncMock()) as model,patch.object(bot.automatic_memory,'process',new=AsyncMock()) as memory:
+        with patch.dict('os.environ',{'X2POS_OWNER_ID':'123','X2POS_LLM_ENABLED':'1','X2POS_EXPENSES_COMPLETE':'1'}),patch.object(bot,'BACKEND','supabase'),patch.object(dialogue.store,'identity',return_value=(123,'7')),patch.object(expenses,'report',return_value={'daily':days}),patch.object(bot.deepseek.chat.completions,'create',new=AsyncMock()) as model,patch.object(bot.automatic_memory,'process',new=AsyncMock()) as memory:
             await bot.handle_text(update,ctx,'Покажи расходы и чистую прибыль за сентябрь')
         model.assert_not_awaited();memory.assert_not_awaited()
         text=update.message.reply_text.call_args.args[0]
@@ -50,7 +50,7 @@ class DialogueTests(unittest.IsolatedAsyncioTestCase):
         reply=N(choices=[N(message=N(content='Synthetic business answer'))])
         with patch.dict('os.environ',{'X2POS_OWNER_ID':'123','X2POS_LLM_ENABLED':'1'}),patch.object(bot,'BACKEND','supabase'),patch.object(bot,'restore_dialogue',new=AsyncMock(return_value=[])),patch.object(bot.automatic_memory,'process',new=AsyncMock()) as personal,patch.object(bot.automatic_memory,'context',new=AsyncMock(return_value='personal')),patch.object(bot.business_dialogue,'context',new=AsyncMock(return_value='X2POS snapshot: total=100; last_success=TEST')) as data,patch.object(bot.deepseek.chat.completions,'create',new=AsyncMock(return_value=reply)) as model,patch.object(bot,'send_reply',new=AsyncMock()):
             await bot.handle_text(update,ctx,update.message.text)
-            data.assert_awaited_once_with(123)
+            data.assert_awaited_once_with(123,'')
             personal.assert_not_awaited()
             messages=model.call_args.kwargs['messages']
             self.assertTrue(any('X2POS snapshot' in row['content'] for row in messages if row['role']=='system'))
