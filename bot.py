@@ -70,7 +70,7 @@ async def telegram_ready(app):
             BotCommand('questions','Знакомство и вопросы'),
             BotCommand('files','Форматы и чтение файлов'),
             BotCommand('kaspi','Заказы Kaspi'),
-            BotCommand('x2pos','Товары и остатки X2POS'),
+            BotCommand('x2pos','Аналитика бизнеса'),
         ],scope=BotCommandScopeAllPrivateChats())
     except Exception as error:
         logger.warning('Меню команд недоступно (%s)',type(error).__name__)

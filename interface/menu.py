@@ -11,8 +11,9 @@ NEW='🔄 Новый диалог'
 HELP='❔ Помощь'
 QUESTIONS='🤝 Знакомство'
 KASPI='🛍 Kaspi'
-X2POS='📦 X2POS'
-LABELS={CHAT,MEMORY,SAVE,NEW,HELP,QUESTIONS,KASPI,X2POS}
+X2POS='📊 Аналитика бизнеса'
+LEGACY_X2POS='📦 X2POS'
+LABELS={CHAT,MEMORY,SAVE,NEW,HELP,QUESTIONS,KASPI,X2POS,LEGACY_X2POS}
 SERVICE_PREFIXES=('Знакомство\n','Хранитель\n','Возможности Хранителя\n','Запись в память\n','Новый диалог\n','Общение\n','Действие отменено.','Подтверждение уже не действует.')
 
 def keyboard():
@@ -40,7 +41,7 @@ async def text(update,context,handlers):
     content=update.message.text.strip()
     if content in LABELS:
         data.pop('interface_input',None);data.pop('interface_clear',None)
-        if content==X2POS:
+        if content in (X2POS,LEGACY_X2POS):
             from x2pos.handlers import panel
             await panel(update,context)
         elif content==KASPI:

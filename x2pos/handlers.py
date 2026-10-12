@@ -21,7 +21,7 @@ async def panel(update, context):
         await update.message.reply_text("X2POS доступен только владельцу магазина.")
         return
     context.user_data.pop("interface_input",None)
-    await update.message.reply_text("X2POS\nТовары, цены, остатки и движения выбранного филиала.",
+    await update.message.reply_text("Аналитика бизнеса\nX2POS: товары, цены, остатки и движения выбранного филиала.",
                                     reply_markup=keyboard())
 
 async def callback(update, context):
