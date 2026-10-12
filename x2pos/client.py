@@ -39,7 +39,7 @@ def number(value):
         raise X2Error("X2POS вернул некорректные числовые данные.") from None
 
 def request(path, params=None, extra=None):
-    if path not in ("/employee", "/products", "/stock", "/procurements"):
+    if path not in ("/employee", "/products", "/stock", "/procurements", "/orders"):
         raise ValueError("Unsupported endpoint")
     key = os.getenv("X2POS_API_KEY", "").strip()
     if not key or not key.isascii() or any(c.isspace() for c in key):

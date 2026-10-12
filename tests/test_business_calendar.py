@@ -36,7 +36,7 @@ class CalendarTests(unittest.TestCase):
             q=N(answer=AsyncMock(),edit_message_text=AsyncMock(),
                 message=N(reply_text=AsyncMock()),data=data)
             update=N(effective_user=N(id=owner),effective_chat=N(id=owner,type='private'),callback_query=q)
-            with patch.dict('os.environ',{'X2POS_OWNER_ID':'123'}),patch.object(calendar_ui,'today',return_value=date(2026,10,12)):
+            with patch.dict('os.environ',{'X2POS_OWNER_ID':'123'}),patch.object(calendar_ui,'today',return_value=date(2026,10,12)),patch.object(handlers.reports,'sales',return_value={'total':0,'sales_total':0,'returns_total':0,'sales_count':0,'returns_count':0,'canceled_count':0}):
                 asyncio.run(handlers.callback(update,N(user_data={})))
             if owner==999:
                 q.message.reply_text.assert_not_awaited()
@@ -71,15 +71,16 @@ class CalendarTests(unittest.TestCase):
                 q=N(answer=AsyncMock(),edit_message_text=AsyncMock(),
                     message=N(reply_text=AsyncMock()),data=f'x2pos:day:{end}:{start}')
                 update=N(effective_user=N(id=123),effective_chat=N(id=123,type='private'),callback_query=q)
-                with patch.dict('os.environ',{'X2POS_OWNER_ID':'123'}),patch.object(calendar_ui,'today',return_value=date(2026,10,12)):
+                with patch.dict('os.environ',{'X2POS_OWNER_ID':'123'}),patch.object(calendar_ui,'today',return_value=date(2026,10,12)),patch.object(handlers.reports,'sales',return_value={'total':0,'sales_total':0,'returns_total':0,'sales_count':0,'returns_count':0,'canceled_count':0}):
                     asyncio.run(handlers.callback(update,N(user_data={})))
                 result=q.edit_message_text.call_args.args[0]
                 if days is None:
                     self.assertIn('не может быть раньше',result)
                     self.assertIn(f'x2pos:day:{end}:{start}',callbacks(q.edit_message_text.call_args.kwargs['reply_markup']))
                 else:
+                    result=q.message.reply_text.call_args.args[0]
                     self.assertIn(f'Дней: {days} ',result)
-                    self.assertIn('пока не подключён',result)
+                    self.assertIn('Итого с возвратами',result)
 
 
     def test_calendar_date_boundaries(self):

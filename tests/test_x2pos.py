@@ -26,7 +26,7 @@ class Tests(unittest.TestCase):
     def test_redirect_and_endpoint(self):
         self.assertIsNone(client.NoRedirect().redirect_request(None,None,302,"",{},"https://evil.invalid"))
         with self.assertRaises(ValueError):
-            client.request("/orders")
+            client.request("/orders/delete")
 
     def test_missing_key_no_network(self):
         with patch.dict("os.environ",{"X2POS_API_KEY":""}),patch.object(client,"build_opener") as build:

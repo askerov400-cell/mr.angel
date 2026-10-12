@@ -1,7 +1,8 @@
 """Owner-only X2POS views outside conversational memory and LLM."""
+import asyncio
 import os
 from telegram import InlineKeyboardButton as B, InlineKeyboardMarkup as M
-from x2pos import calendar_ui
+from x2pos import calendar_ui, reports, client
 
 def allowed(update):
     return bool(update.effective_user and update.effective_chat
@@ -31,8 +32,8 @@ async def callback(update, context):
             "Остаток на складе\nОбщая стоимость, ₸\n\n"
             "<pre>Закупочная | Оптовая | Розничная\n"
             "     —     |    —    |     —</pre>\n\n"
-            "Расчёт пока не подключён: нужно подтвердить закупочную стоимость "
-            "и полноту остатков в API X2POS. Прочерки означают отсутствие "
+            "X2POS подтвердил: готового метода закупочной стоимости склада нет. "
+            "Для оптового и розничного итогов ещё требуется проверка полноты остатков. Прочерки означают отсутствие "
             "подтверждённого расчёта.",
             parse_mode="HTML", reply_markup=keyboard())
         return
@@ -63,16 +64,17 @@ async def callback(update, context):
                     calendar_ui.prompt(start) + "\nКонец не может быть раньше начала.",
                     reply_markup=calendar_ui.keyboard(day.year, day.month, start=start))
                 return
-            days = (day - start).days + 1
             await q.edit_message_text(
                 f"Статистика продаж\nПериод: {start:%d.%m.%Y} — {day:%d.%m.%Y}\n"
-                f"Дней: {days} (обе даты включены)\n\n"
-                "Расчёт пока не подключён: ожидаем подтверждённый метод "
-                "получения истории продаж через API X2POS.",
+                "Загружаю все страницы X2POS…")
+            result = await asyncio.to_thread(reports.sales, start, day)
+            await q.message.reply_text(reports.format_report(start, day, result),
                 reply_markup=M([[B("Выбрать другой период", callback_data="x2pos:sales")],
                                 [B("Назад", callback_data="x2pos:home")]]))
         else:
             await q.message.reply_text("Меню обновлено. Выбери нужный отчёт.", reply_markup=keyboard())
+    except client.X2Error as error:
+        await q.message.reply_text(str(error), reply_markup=keyboard())
     except (ValueError, OverflowError):
         await q.message.reply_text("Эта дата недоступна. Открой календарь заново.",
             reply_markup=keyboard())
