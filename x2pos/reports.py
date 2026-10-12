@@ -54,7 +54,7 @@ def costs(row, flag):
     return values
 
 
-def sales(start, end, daily=False):
+def sales(start, end, daily=False, sparse=False):
     if end < start:
         raise ValueError('End before start')
     if not GATE.acquire(blocking=False):
@@ -63,7 +63,7 @@ def sales(start, end, daily=False):
         deadline = time.monotonic() + TIME_LIMIT
         access = client.employee()
         by_day = { (start+timedelta(days=i)).isoformat(): empty_day()
-                  for i in range((end-start).days+1) } if daily else {}
+                  for i in range((end-start).days+1) } if daily and not sparse else {}
         total = sales_total = returns_total = Decimal(0)
         sales_count = returns_count = canceled_count = 0
         seen = set()
@@ -99,7 +99,7 @@ def sales(start, end, daily=False):
                 if status == 'canceled':
                     canceled_count += 1
                     if daily:
-                        by_day[day.isoformat()]['canceled_count'] += 1
+                        by_day.setdefault(day.isoformat(),empty_day())['canceled_count'] += 1
                     continue
                 if str(row.get('is_deleted', '0')) != '0':
                     raise client.X2Error('В ответе удалённый документ; правила его учёта не подтверждены.')
@@ -110,7 +110,7 @@ def sales(start, end, daily=False):
                 if (flag == '1' and value > 0) or (flag == '0' and value < 0):
                     raise client.X2Error('Знак суммы не соответствует типу продажи. Полный отчёт не рассчитан.')
                 if daily:
-                    bucket = by_day[day.isoformat()]
+                    bucket = by_day.setdefault(day.isoformat(),empty_day())
                     bucket['total'] += value
                     prefix = 'returns' if flag == '1' else 'sales'
                     bucket[prefix+'_total'] += value

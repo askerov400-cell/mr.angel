@@ -14,14 +14,20 @@ def category_ids():
     value=os.getenv('X2POS_EXPENSE_CATEGORY_IDS','').strip()
     return {client.identifier(v.strip()) for v in value.split(',')} if value else set()
 
-def fetch(start,end):
+def excluded_ids():
+    value=os.getenv('X2POS_EXCLUDED_PAYMENT_CATEGORY_IDS','').strip()
+    return {client.identifier(v.strip()) for v in value.split(',')} if value else set()
+
+def fetch(start,end,sparse=False):
     if end<start: raise ValueError('End before start')
     if not reports.GATE.acquire(blocking=False):
         raise reports.Busy('Отчёт X2POS уже загружается. Дождись завершения.')
     try:
         access=client.employee()
         known=category_ids()
-        days={(start+timedelta(days=i)).isoformat():empty_day() for i in range((end-start).days+1)}
+        excluded=excluded_ids()
+        if known & excluded:raise client.X2Error('Категория X2POS одновременно в расходах и исключениях. Проверь настройки.')
+        days={} if sparse else {(start+timedelta(days=i)).isoformat():empty_day() for i in range((end-start).days+1)}
         seen=set(); page=1; deadline=time.monotonic()+reports.TIME_LIMIT
         while True:
             if time.monotonic()>=deadline:
@@ -48,7 +54,7 @@ def fetch(start,end):
                 if deleted=='1':continue
                 value=-reports.amount(row.get('amount'))
                 if value<0:raise client.X2Error('Неожиданный знак расхода X2POS.')
-                bucket=days[day.isoformat()]
+                bucket=days.setdefault(day.isoformat(),empty_day())
                 # Refunds already reduce revenue; purchases are accounted in COGS.
                 # A source account marks a money transfer, not an operating expense.
                 linked=any(row.get(k) not in (None,'','0',0) for k in ('order_id','procurement_id','source_account_id'))
@@ -57,7 +63,9 @@ def fetch(start,end):
                     or row.get('is_debt_payment') not in (None,'','0',0)
                     or row.get('supplier_id') not in (None,'','0',0))
                 cid=client.identifier(row['operation_type_id']) if row.get('operation_type_id') else None
-                kind='excluded' if linked and not uncertain else 'expenses' if cid in known and not uncertain else 'unknown'
+                reversed_payment=(str(row.get('is_returned'))!='0' or row.get('return_of_payment_id') not in (None,'','0',0))
+                explicit_exclusion=cid in excluded and not reversed_payment
+                kind='excluded' if explicit_exclusion or (linked and not uncertain) else 'expenses' if cid in known and not uncertain else 'unknown'
                 bucket[kind+'_total']+=value;bucket[kind+'_count']+=1
                 if kind=='expenses':
                     bucket['expense_categories'][cid]=bucket['expense_categories'].get(cid,Decimal(0))+value
@@ -65,11 +73,13 @@ def fetch(start,end):
         return days
     finally:reports.GATE.release()
 
-def report(start,end):
+def report(start,end,sparse=False):
     # Each list is completed sequentially. No persistence until both succeed.
-    result=reports.sales(start,end,daily=True)
-    payments=fetch(start,end)
-    for day,row in result['daily'].items():row.update(payments[day])
+    result=reports.sales(start,end,daily=True,sparse=True) if sparse else reports.sales(start,end,daily=True)
+    payments=fetch(start,end,sparse=True) if sparse else fetch(start,end)
+    for day in set(result['daily']) | set(payments):
+        row=result['daily'].setdefault(day,reports.empty_day())
+        row.update(payments.get(day,empty_day()))
     from x2pos.analytics import aggregate
     result.update(aggregate(list(result['daily'].values())))
     return result
