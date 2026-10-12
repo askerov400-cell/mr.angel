@@ -6,7 +6,7 @@ from uuid import UUID
 from telegram import ForceReply, InlineKeyboardButton as B, InlineKeyboardMarkup as M
 from interface.menu import private
 from memory.journal import send_reply, redact
-from . import store
+from . import store, answers
 
 logger = logging.getLogger('guardian')
 
@@ -32,9 +32,11 @@ async def panel(update, context):
     try:
         rows = await store.action(update.effective_user.id,'status')
         state = rows[0] if rows else {'enabled':False,'pending':None}
-        text = ('Знакомство\n\nДо 10 вопросов в день в случайное время с 10:00 до 23:00 (Казахстан, UTC+5). '
-                'Если вопрос остался без ответа, следующий подождёт. '
-                'Ответы сохраняются в память. Можно пропустить вопрос или включить паузу.\n\n'
+        text = ('Знакомство\n\n20–30 вопросов в день в случайное время с 09:00 до 23:00 (Казахстан, UTC+5). '
+                'Можно отвечать позже через «Ответить» или ответом на нужное сообщение. '
+                'Ответы кратко структурируются и сохраняются в память. '
+                'Можно пропустить вопрос или включить паузу. '
+                'При позднем включении или сбоях вопросов может быть меньше.\n\n'
                 + ('Сейчас включено.' if state['enabled'] else 'Сейчас выключено.'))
         pending = state.get('pending')
         if pending:
@@ -105,10 +107,16 @@ async def answer(update, context, text=None):
         if not 1 <= len(text) <= 1400:
             await send_reply(update,'Знакомство\nНапиши ответ длиной до 1400 символов, ответом на тот же вопрос.')
             return True
-        saved = await store.action(update.effective_user.id,'answer',question['id'],text=text)
+        app = getattr(context, 'application', None)
+        worker = getattr(app, 'bot_data', {}).get('acquaintance_worker')
+        summary = await answers.summarize(question.get('question_text', ''), text,
+                                          getattr(worker, 'client', None))
+        saved = await store.action(update.effective_user.id,'answer',question['id'],
+                                   text=text, memory_text=summary)
         if not saved or not saved[0].get('saved'):
             raise RuntimeError('Answer was not confirmed')
-        await send_reply(update,'Знакомство\n'+('Распознал: «'+text+'»\n' if voice_answer else '')+'Ответ сохранён в долговременной памяти.')
+        await send_reply(update,'Знакомство\n'+('Распознал: «'+text+'»\n' if voice_answer else '')
+                         +'Ответ сохранён в долговременной памяти.\n\n'+summary)
         return True
     except Exception as error:
         logger.warning('Знакомство: ответ не подтверждён (%s)',type(error).__name__)

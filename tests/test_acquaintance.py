@@ -1,11 +1,12 @@
 import asyncio
+import json
 import os
 import random
 import unittest
 from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace as NS
 from unittest.mock import AsyncMock, patch
-from acquaintance import schedule, handlers, store, questions
+from acquaintance import schedule, handlers, store, questions, answers
 from acquaintance.worker import Scheduler
 from storage.supabase_store import StorageError
 from interface import menu
@@ -18,16 +19,26 @@ def incoming(reply=True,owner=12,kind='private'):
               effective_user=NS(id=owner),effective_chat=NS(id=owner if kind=='private' else -100,type=kind))
 
 class ScheduleTests(unittest.TestCase):
+    def test_many_days_cover_count_bounds_and_spacing(self):
+        counts = set()
+        for seed in range(300):
+            plan = schedule.slots(date(2026,10,9),random.Random(seed))
+            counts.add(len(plan))
+            self.assertEqual([row['slot'] for row in plan],list(range(len(plan))))
+            times = [datetime.fromisoformat(row['at']) for row in plan]
+            self.assertTrue(all(schedule.in_window(t) for t in times))
+            self.assertTrue(all(b-a >= timedelta(minutes=10) for a,b in zip(times,times[1:])))
+        self.assertEqual(counts,set(range(20,31)))
     def test_slots_are_spread_and_random(self):
         first=schedule.slots(date(2026,10,9),random.Random(1))
         second=schedule.slots(date(2026,10,9),random.Random(2))
-        self.assertEqual(len(first),10);self.assertNotEqual(first,second)
+        self.assertTrue(20 <= len(first) <= 30);self.assertNotEqual(first,second)
         times=[datetime.fromisoformat(x['at']) for x in first]
         self.assertTrue(all(schedule.in_window(x) for x in times))
-        self.assertTrue(all(b-a>=timedelta(minutes=20) for a,b in zip(times,times[1:])))
+        self.assertTrue(all(b-a>=timedelta(minutes=10) for a,b in zip(times,times[1:])))
     def test_window_uses_owner_timezone_and_exclusive_end(self):
-        self.assertFalse(schedule.in_window(datetime(2026,10,9,4,59,tzinfo=timezone.utc)))
-        self.assertTrue(schedule.in_window(datetime(2026,10,9,5,tzinfo=timezone.utc)))
+        self.assertFalse(schedule.in_window(datetime(2026,10,9,3,59,tzinfo=timezone.utc)))
+        self.assertTrue(schedule.in_window(datetime(2026,10,9,4,tzinfo=timezone.utc)))
         self.assertFalse(schedule.in_window(datetime(2026,10,9,18,tzinfo=timezone.utc)))
 
 class AnswerTests(unittest.IsolatedAsyncioTestCase):
@@ -44,7 +55,7 @@ class AnswerTests(unittest.IsolatedAsyncioTestCase):
             return [{'id':QID,'status':'sent'}] if name=='by_message' else [{'saved':True}]
         with patch.dict(os.environ,{'MEMORY_BACKEND':'supabase'}),patch.object(store,'action',new=action),patch.object(handlers,'send_reply',new=AsyncMock()) as reply:
             self.assertTrue(await handlers.answer(incoming(),self.context()))
-            self.assertEqual(calls[1],(12,'answer',QID,{'text':'Synthetic answer'}))
+            self.assertEqual(calls[1],(12,'answer',QID,{'text':'Synthetic answer','memory_text':'- Synthetic answer'}))
             self.assertIn('сохранён',reply.await_args.args[1])
     async def test_failure_never_claims_answer_saved(self):
         with patch.dict(os.environ,{'MEMORY_BACKEND':'supabase'}),patch.object(store,'action',new=AsyncMock(side_effect=StorageError('safe'))),patch.object(handlers,'send_reply',new=AsyncMock()) as reply:
@@ -64,9 +75,29 @@ class AnswerTests(unittest.IsolatedAsyncioTestCase):
 
 class WorkerTests(unittest.IsolatedAsyncioTestCase):
     def worker(self):return Scheduler(NS(send_message=AsyncMock(return_value=NS(message_id=90))),NS())
+    async def test_old_database_blocks_new_schedule(self):
+        worker=self.worker()
+        with patch.object(store,'action',new=AsyncMock(return_value=[{'planned':True}])):
+            with self.assertRaises(RuntimeError):
+                await worker.ensure_plan(12)
+        self.assertFalse(worker.planned)
+
+    async def test_generation_crossing_window_does_not_send(self):
+        worker=self.worker()
+        async def action(owner,name,qid=None,**data):
+            if name=='claim':return [{'id':QID}]
+            return [{'planned':True,'plan_version':2}]
+        with patch.object(worker,'ensure_plan',new=AsyncMock()),patch.object(
+                schedule,'in_window',side_effect=[True,False]),patch.object(
+                store,'action',new=AsyncMock(side_effect=action)) as call,patch.object(
+                questions,'generate',new=AsyncMock(return_value='Synthetic question?')):
+            await worker.deliver(12)
+            worker.bot.send_message.assert_not_awaited()
+            self.assertIn('skip',[x.args[1] for x in call.await_args_list])
+
     async def test_restart_reuses_existing_plan(self):
         first=self.worker();second=self.worker()
-        with patch.object(store,'action',new=AsyncMock(return_value=[{'planned':True}])) as call:
+        with patch.object(store,'action',new=AsyncMock(return_value=[{'planned':True,'plan_version':2}])) as call:
             await first.ensure_plan(12);await first.ensure_plan(12);await second.ensure_plan(12)
             self.assertEqual(call.await_count,4)
     async def test_closed_window_does_not_claim_or_send(self):
@@ -78,7 +109,7 @@ class WorkerTests(unittest.IsolatedAsyncioTestCase):
         async def action(owner,name,qid=None,**data):
             if name=='test':return [{'id':QID}]
             if name=='prepare':return [{'id':QID,'question_text':'Synthetic question?'}]
-            return [{'planned':True}]
+            return [{'planned':True,'plan_version':2}]
         with patch.object(store,'action',new=AsyncMock(side_effect=action)) as call,patch.object(questions,'generate',new=AsyncMock(return_value='Synthetic question?')):
             await worker.deliver(12,manual=True)
             self.assertEqual(worker.bot.send_message.await_count,1)
@@ -86,7 +117,7 @@ class WorkerTests(unittest.IsolatedAsyncioTestCase):
             self.assertNotIn('skip',[x.args[1] for x in call.await_args_list])
     async def test_memory_failure_suppresses_question(self):
         worker=self.worker()
-        async def action(owner,name,qid=None,**data):return [{'id':QID}] if name=='test' else [{'planned':True}]
+        async def action(owner,name,qid=None,**data):return [{'id':QID}] if name=='test' else [{'planned':True,'plan_version':2}]
         with patch.object(store,'action',new=AsyncMock(side_effect=action)) as call,patch.object(questions,'generate',new=AsyncMock(side_effect=RuntimeError('safe'))):
             await worker.deliver(12,manual=True)
             worker.bot.send_message.assert_not_awaited()
@@ -95,9 +126,52 @@ class WorkerTests(unittest.IsolatedAsyncioTestCase):
         worker=self.worker()
         async def action(owner,name,qid=None,**data):
             if name=='test':return [{'id':QID}]
-            return [] if name=='prepare' else [{'planned':True}]
+            return [] if name=='prepare' else [{'planned':True,'plan_version':2}]
         with patch.object(store,'action',new=AsyncMock(side_effect=action)),patch.object(questions,'generate',new=AsyncMock(return_value='Synthetic question?')):
             await worker.deliver(12,manual=True);worker.bot.send_message.assert_not_awaited()
+
+class SummaryTests(unittest.IsolatedAsyncioTestCase):
+    def client(self, points):
+        create=AsyncMock(return_value=NS(choices=[NS(message=NS(content=json.dumps({'points':points})))]))
+        return NS(chat=NS(completions=NS(create=create)))
+
+    async def test_compact_points_keep_numbers(self):
+        result=await answers.summarize('Goal?', 'My goal is 20 stores by 2030.',
+                                      self.client(['Goal: 20 stores by 2030.']))
+        self.assertEqual(result,'- Goal: 20 stores by 2030.')
+
+    async def test_numeric_invention_or_omission_uses_original(self):
+        for point in ['Goal: 30 stores.','Goal: stores.']:
+            result=await answers.summarize('Goal?','Goal: 20 stores.',self.client([point]))
+            self.assertEqual(result,'- Goal: 20 stores.')
+
+    async def test_summary_failure_preserves_answer(self):
+        client=self.client(['unused'])
+        client.chat.completions.create.side_effect=TimeoutError()
+        result=await answers.summarize('Habits?','I do not smoke.',client)
+        self.assertEqual(result,'- I do not smoke.')
+
+    async def test_lost_negation_uses_original(self):
+        self.assertEqual(await answers.summarize('Habits?','I do not smoke.',
+                                                self.client(['I smoke.'])),
+                         '- I do not smoke.')
+
+    async def test_malformed_or_expanded_summary_uses_original(self):
+        for points in ['invalid',[],['Long expanded information not given in the source answer.']]:
+            self.assertEqual(await answers.summarize('Question?','Short answer.',self.client(points)),
+                             '- Short answer.')
+
+    async def test_source_and_summary_are_sent_in_one_rpc(self):
+        request=incoming()
+        context=NS(bot=NS(id=99),application=NS(bot_data={
+            'acquaintance_worker':NS(client=self.client(['Answer.']))}))
+        with patch.dict(os.environ,{'MEMORY_BACKEND':'supabase'}),patch.object(
+                store,'action',new=AsyncMock(side_effect=[
+                    [{'id':QID,'status':'sent','question_text':'Question?'}],[{'saved':True}]])) as call,patch.object(
+                handlers,'send_reply',new=AsyncMock()):
+            await handlers.answer(request,context)
+        self.assertEqual(call.await_args.kwargs,
+                         {'text':'Synthetic answer','memory_text':'- Answer.'})
 
 class CallbackTests(unittest.IsolatedAsyncioTestCase):
     async def test_foreign_question_cannot_be_answered_or_skipped(self):
@@ -124,5 +198,5 @@ class VoiceAnswerTests(unittest.IsolatedAsyncioTestCase):
         request=incoming();request.message.text=None
         with patch.dict(os.environ,{'MEMORY_BACKEND':'supabase'}),patch.object(store,'action',new=AsyncMock(side_effect=[[{'id':QID,'status':'sent'}],[{'saved':True}]])) as call,patch.object(handlers,'send_reply',new=AsyncMock()) as reply:
             self.assertTrue(await handlers.answer(request,NS(bot=NS(id=99)),text='Synthetic voice answer'))
-            self.assertEqual(call.await_args.kwargs,{'text':'Synthetic voice answer'})
+            self.assertEqual(call.await_args.kwargs,{'text':'Synthetic voice answer','memory_text':'- Synthetic voice answer'})
             self.assertIn('Распознал',reply.await_args.args[1])

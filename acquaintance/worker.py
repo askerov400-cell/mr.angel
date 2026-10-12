@@ -29,6 +29,8 @@ class Scheduler:
             if key not in self.planned:
                 rows = await store.action(owner,'plan',day=target.isoformat(),times=schedule.slots(target))
                 if rows:
+                    if rows[0].get('plan_version') != 2:
+                        raise RuntimeError('Acquaintance database upgrade required')
                     self.planned.add(key)
         self.planned = {key for key in self.planned if key[1]>=day}
 
@@ -47,7 +49,10 @@ class Scheduler:
                 if not text:
                     await store.action(owner,'skip',question_id)
                     return None
-                prepared = await store.action(owner,'prepare',question_id,text=text)
+                if not manual and not schedule.in_window(schedule.local_now()):
+                    await store.action(owner,'skip',question_id)
+                    return None
+                prepared = await store.action(owner,'prepare',question_id,text=text,manual=manual)
                 if not prepared:
                     return None
             except Exception as error:
@@ -55,6 +60,9 @@ class Scheduler:
                 await store.action(owner,'skip',question_id)
                 return None
             try:
+                if not manual and not schedule.in_window(schedule.local_now()):
+                    await store.action(owner,'skip',question_id)
+                    return None
                 sent = await asyncio.wait_for(self.bot.send_message(
                     chat_id=owner, text='Знакомство\n\n'+text+'\n\nОтветь через «Ответить» или ответом на это сообщение.',
                     reply_markup=question_buttons(question_id),
