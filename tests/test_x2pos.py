@@ -105,17 +105,14 @@ class Tests(unittest.TestCase):
                 with self.assertRaises(client.X2Error):
                     client.movements("revision",1)
 
-    def test_empty_filtered_page_navigation_and_period(self):
+    def test_old_movement_button_opens_updated_menu_without_request(self):
         q=NS(answer=AsyncMock(),message=NS(reply_text=AsyncMock()),data="x2pos:move:writeoff:1")
         update=NS(effective_user=NS(id=123),effective_chat=NS(id=123,type="private"),callback_query=q)
-        with patch.dict("os.environ",ENV),patch.object(client,"movements",return_value={"rows":[],"has_next":True}):
+        with patch.dict("os.environ",ENV),patch.object(client,"movements") as request:
             asyncio.run(handlers.callback(update,NS(user_data={})))
-        reply=q.message.reply_text.call_args
-        callbacks=[button.callback_data for line in reply.kwargs["reply_markup"].inline_keyboard for button in line]
-        self.assertIn("x2pos:move:writeoff:2",callbacks)
-        self.assertNotIn("7 дней",reply.args[0])
-        self.assertNotIn("UTC",reply.args[0])
-        self.assertIn("выбранного филиала",reply.args[0])
+            request.assert_not_called()
+        buttons=[b.text for row in q.message.reply_text.call_args.kwargs["reply_markup"].inline_keyboard for b in row]
+        self.assertEqual(buttons,["Остаток на складе","Статистика продаж"])
 
     def test_unauthorized_never_requests(self):
         for owner,chat in ((999,"private"),(123,"group")):

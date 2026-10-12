@@ -1,8 +1,7 @@
 """Owner-only X2POS views outside conversational memory and LLM."""
-import asyncio
 import os
 from telegram import InlineKeyboardButton as B, InlineKeyboardMarkup as M
-from x2pos import client
+from x2pos import calendar_ui
 
 def allowed(update):
     return bool(update.effective_user and update.effective_chat
@@ -12,17 +11,14 @@ def allowed(update):
 
 def keyboard():
     return M([[B("Остаток на складе",callback_data="x2pos:warehouse")],
-              [B("Проверить подключение",callback_data="x2pos:check")],
-              [B("Товары и остатки",callback_data="x2pos:catalog:1:0")]]
-             + [[B(title,callback_data=f"x2pos:move:{action}:1")]
-                for action,title in client.ACTIONS.items()])
+              [B("Статистика продаж",callback_data="x2pos:sales")]])
 
 async def panel(update, context):
     if not allowed(update):
         await update.message.reply_text("X2POS доступен только владельцу магазина.")
         return
     context.user_data.pop("interface_input",None)
-    await update.message.reply_text("Аналитика бизнеса\nX2POS: товары, цены, остатки и движения выбранного филиала.",
+    await update.message.reply_text("Аналитика бизнеса\nОстаток на складе и статистика продаж X2POS.",
                                     reply_markup=keyboard())
 
 async def callback(update, context):
@@ -41,61 +37,29 @@ async def callback(update, context):
             parse_mode="HTML", reply_markup=keyboard())
         return
     parts = q.data.split(":")
-    await q.message.reply_text("Проверяю X2POS…")
+    if q.data == "x2pos:noop":
+        return
+    if q.data == "x2pos:home":
+        await q.edit_message_text("Аналитика бизнеса", reply_markup=keyboard())
+        return
     try:
-        if q.data == "x2pos:check":
-            await asyncio.wait_for(asyncio.to_thread(client.employee),12)
-            await q.message.reply_text("X2POS подтвердил ключ и доступ к выбранному филиалу.",
-                                       reply_markup=keyboard())
-        elif len(parts)==4 and parts[1]=="catalog":
-            page, offset = int(parts[2]), int(parts[3])
-            if not 1<=page<=10000 or offset not in (0,10,20,30,40):
-                return
-            rows = await asyncio.wait_for(asyncio.to_thread(client.catalog,page),32)
-            selected = rows[offset:offset+10]
-            lines = [f"X2POS — товары и остатки\nСтраница API {page}"]
-            for row in selected:
-                lines.append(f"{row['name']} {row['variation']}\n"
-                             f"ID разновидности: {row['id']}\n"
-                             f"Остаток: {row['quantity']} ({row['unit']})\n"
-                             f"Розница: {row['retail']} ₸ · Опт: {row['wholesale']} ₸")
-            if not selected:
-                lines.append("Товаров на этой странице нет.")
-            nav = []
-            if offset>0:
-                nav.append(B("Назад",callback_data=f"x2pos:catalog:{page}:{offset-10}"))
-            elif page>1:
-                nav.append(B("Предыдущая страница",callback_data=f"x2pos:catalog:{page-1}:0"))
-            if offset+10<len(rows):
-                nav.append(B("Далее",callback_data=f"x2pos:catalog:{page}:{offset+10}"))
-            elif len(rows)==50 and page<10000:
-                nav.append(B("Следующая страница",callback_data=f"x2pos:catalog:{page+1}:0"))
-            await q.message.reply_text("\n\n".join(lines),reply_markup=M(
-                ([nav] if nav else [])+list(keyboard().inline_keyboard)))
-        elif len(parts)==4 and parts[1]=="move":
-            action,page = parts[2],int(parts[3])
-            movement_page = await asyncio.wait_for(asyncio.to_thread(client.movements,action,page),22)
-            rows = movement_page["rows"]
-            labels={"draft":"Черновик","completed":"Завершён","canceled":"Отменён",
-                    "waiting_to_confirm":"Ожидает подтверждения"}
-            lines=[f"X2POS — {client.ACTIONS[action]}\nВыбранный филиал · страница API {page}\nДаты как в X2POS."]
-            for row in rows:
-                lines.append(f"Документ № {row['id']} · {row['date']}\n"
-                             f"{labels.get(row['status'],'Неизвестный статус')}\n"
-                             f"Количество: {row['quantity']} · Сумма: {row['amount']} ₸")
-            if not rows:
-                lines.append("На этой странице API нет документов выбранного филиала.")
-            nav=[]
-            if page>1:
-                nav.append(B("Назад",callback_data=f"x2pos:move:{action}:{page-1}"))
-            if movement_page["has_next"] and page<10000:
-                nav.append(B("Далее",callback_data=f"x2pos:move:{action}:{page+1}"))
-            await q.message.reply_text("\n\n".join(lines),reply_markup=M(
-                ([nav] if nav else [])+list(keyboard().inline_keyboard)))
-    except client.X2Error as error:
-        await q.message.reply_text(str(error),reply_markup=keyboard())
-    except TimeoutError:
-        await q.message.reply_text("Проверка X2POS заняла слишком много времени. Результат не подтверждён.",
-                                   reply_markup=keyboard())
-    except (ValueError,KeyError):
-        await q.message.reply_text("Открой раздел X2POS заново.",reply_markup=keyboard())
+        if q.data == "x2pos:sales":
+            now = calendar_ui.today()
+            await q.message.reply_text("Статистика продаж\nВыбери день:",
+                reply_markup=calendar_ui.keyboard(now.year, now.month))
+        elif len(parts) == 4 and parts[1] == "month":
+            markup = calendar_ui.keyboard(int(parts[2]), int(parts[3]))
+            await q.edit_message_text("Статистика продаж\nВыбери день:", reply_markup=markup)
+        elif len(parts) == 3 and parts[1] == "day":
+            day = calendar_ui.selected(parts[2])
+            await q.edit_message_text(
+                f"Статистика продаж за {day:%d.%m.%Y}\n\n"
+                "Расчёт пока не подключён: ожидаем подтверждённый метод "
+                "получения истории продаж через API X2POS.",
+                reply_markup=M([[B("Выбрать другую дату", callback_data="x2pos:sales")],
+                                [B("Назад", callback_data="x2pos:home")]]))
+        else:
+            await q.message.reply_text("Меню обновлено. Выбери нужный отчёт.", reply_markup=keyboard())
+    except (ValueError, OverflowError):
+        await q.message.reply_text("Эта дата недоступна. Открой календарь заново.",
+            reply_markup=keyboard())
