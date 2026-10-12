@@ -8,7 +8,7 @@ import zipfile
 from pathlib import Path
 from html.parser import HTMLParser
 
-MAX_TEXT = 60000
+MAX_TEXT = 300000
 MAX_ROWS = 2000
 MAX_COLS = 100
 EXTENSIONS = {'.pdf', '.docx', '.xlsx', '.xls', '.csv', '.txt', '.md',
@@ -27,9 +27,9 @@ class Lines:
         value = str(value).strip()
         if not value:
             return
-        self.size += len(value) + 1
+        self.size += len(value) + (1 if self.parts else 0)
         if self.size > MAX_TEXT:
-            raise LimitError('Слишком много текста: предел 60000 символов.')
+            raise LimitError('Слишком много текста: предел 300000 символов.')
         self.parts.append(value)
 
     def row(self, label, values):

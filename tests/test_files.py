@@ -42,7 +42,7 @@ class ParserTests(unittest.TestCase):
 
     def test_text_limit(self):
         with self.assertRaises(extract.LimitError):
-            self.parse('.txt',b'x'*60001)
+            self.parse('.txt',b'x'*(extract.MAX_TEXT+1))
 
     def test_html_does_not_execute_or_read_external_content(self):
         result=self.parse('.html',b'<p>visible</p><script>hidden</script><style>hidden2</style><img src="http://localhost/private">')
