@@ -3,3 +3,9 @@ openai==3.22.1
 python-dotenv==1.2.4
 tzdata==2026.5
 imageio-ffmpeg==0.6.0
+
+openpyxl==3.1.5
+xlrd==2.0.2
+defusedxml==0.7.1
+PyMuPDF==1.28.2
+Pillow==12.3.0
