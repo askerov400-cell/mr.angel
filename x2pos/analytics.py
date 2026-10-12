@@ -1,5 +1,6 @@
 """Deterministic sales analysis; inputs contain only computed aggregates."""
 import json
+import os
 from datetime import datetime, timedelta
 from decimal import Decimal
 from zoneinfo import ZoneInfo
@@ -8,6 +9,39 @@ from x2pos.reports import money
 ZONE = ZoneInfo('Asia/Qyzylorda')
 
 def num(value): return Decimal(str(value))
+
+def profit(row,cost):
+    if (row.get('expenses_total') is None or row.get(cost) is None
+            or row.get('unknown_count') is None or int(row['unknown_count'])>0):return None
+    return num(row['total'])-num(row[cost])-num(row['expenses_total'])
+
+def aggregate(rows):
+    result={k:sum((num(r[k]) for r in rows),Decimal(0)) for k in
+        ('total','sales_total','returns_total','sales_count','returns_count','canceled_count')}
+    for key in ('cost_fifo','cost_average','expenses_total','expenses_count',
+                'excluded_total','excluded_count','unknown_total','unknown_count'):
+        result[key]=None if any(r.get(key) is None for r in rows) else sum((num(r[key]) for r in rows),Decimal(0))
+    categories={}
+    for r in rows:
+        for key,value in r.get('expense_categories',{}).items():
+            categories[key]=categories.get(key,Decimal(0))+num(value)
+    result['expense_categories']=categories
+    return result
+
+def finance_text(row):
+    if row.get('expenses_total') is None:return 'Расходы и чистая прибыль: нет полной выборки.'
+    text=f'Расходы: {money(num(row["expenses_total"]))} ₸ ({int(row["expenses_count"])} выплат).'
+    if row.get('expense_categories'):
+        text+=' Категории: '+', '.join(f'{k}: {money(num(v))} ₸' for k,v in sorted(row['expense_categories'].items()))+'.'
+    if row.get('excluded_count'):
+        text+=f' Выплаты по чекам, закупкам и переводам исключены: {money(num(row["excluded_total"]))} ₸.'
+    if row.get('unknown_count'):
+        text+=f' Неопределённые выплаты: {money(num(row["unknown_total"]))} ₸ ({int(row["unknown_count"])}). Требуется классификация.'
+    label='Чистая прибыль по данным X2POS' if os.getenv('X2POS_EXPENSES_COMPLETE')=='1' else 'Расчётная прибыль по данным X2POS'
+    for key,method in (('cost_fifo','FIFO'),('cost_average','средняя')):
+        value=profit(row,key)
+        text+=f' {label} ({method}): {money(value)} ₸.' if value is not None else f' Прибыль ({method}): нет полных данных.'
+    return text
 
 def comparison(days, target, hour=None):
     prior = [days.get((target-timedelta(days=7*i)).isoformat()) for i in range(1,5)]
@@ -32,7 +66,7 @@ def day_text(day, metrics):
     for key,label in (('cost_fifo','FIFO'),('cost_average','средняя')):
         cost = metrics.get(key)
         text += f' Себестоимость {label}: {money(num(cost))} ₸.' if cost is not None else f' Себестоимость {label}: нет полных данных.'
-    return text
+    return text + ' ' + finance_text(metrics)
 
 def daily_summary(days, now):
     target=now.date()-timedelta(days=1)
@@ -42,7 +76,7 @@ def daily_summary(days, now):
     compare=comparison(days,target)
     if compare and compare['percent'] is not None:
         text+=f'\nИзменение к среднему за 4 предыдущих таких дня недели: {compare["percent"]:+.1f}%.'
-    text+='\nИсточник: X2POS. Чистая прибыль не рассчитана: расходы не подключены.'
+    text+='\nИсточник: X2POS. Расходы — по дате выплаты; прибыль по данным учёта X2POS.'
     return text
 
 def drop_alert(days, now):
@@ -66,12 +100,15 @@ def context_text(state,days,history,now):
           + ('Последняя попытка обновления завершилась ошибкой. ' if state.get('last_error') else '')
           + 'Только выбранный филиал; источником являются полные выборки. '
           'История началась с последних 90 дней, старые дни сохраняются. '
-          'Нет расходов, рекламы, чистой прибыли и причин изменений. '
-          'Не выдавай валовую разницу за чистую прибыль; FIFO и средняя — разные оценки.\n')
+          'Расходы и прибыль включены только при полной загрузке. Причины изменений неизвестны. '
+          'Используй только рассчитанные profit_fifo/profit_average; null означает неизвестно. '
+          'FIFO и средняя — разные оценки. Не вычитай закупки повторно. '
+          'Реклама не выделена без подтверждённой категории.\n')
     for target in (now.date(),now.date()-timedelta(days=1)):
         row=days.get(target.isoformat())
         if row: text+=day_text(target,row)+'\n'
-    compact={d:{k:v for k,v in m.items() if k!='hours'} for d,m in sorted(days.items())}
+    compact={d:{**{k:v for k,v in m.items() if k!='hours'},
+        'profit_fifo':profit(m,'cost_fifo'),'profit_average':profit(m,'cost_average')} for d,m in sorted(days.items())}
     text+='Дневные агрегаты (даты без строки неизвестны, не нули):\n'+json.dumps(compact,ensure_ascii=False,default=str)+'\n'
     text+='Последние версии показателей: '+json.dumps([{k:v for k,v in r.items() if k in ('day','recorded_at')} for r in history],ensure_ascii=False)
     return text

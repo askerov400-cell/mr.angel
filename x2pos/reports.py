@@ -143,10 +143,14 @@ def money(value):
 
 def format_report(start, end, result):
     future = '\nБудущие даты не являются прогнозом продаж.' if end > datetime.now(ZoneInfo('Asia/Qyzylorda')).date() else ''
+    financial = ''
+    if 'expenses_total' in result:
+        from x2pos.analytics import finance_text
+        financial = '\n\n' + finance_text(result)
     return (f'Статистика продаж\nПериод: {start:%d.%m.%Y} — {end:%d.%m.%Y}\n'
             f'Дней: {(end-start).days+1} (обе даты включены)\n\n'
             f'Продажи: {money(result["sales_total"])} ₸ · чеков: {result["sales_count"]}\n'
             f'Возвраты: {money(result["returns_total"])} ₸ · документов: {result["returns_count"]}\n'
             f'Итого с возвратами: {money(result["total"])} ₸\n'
             f'Отменённые исключены: {result["canceled_count"]}\n\n'
-            'Источник: X2POS, выбранный филиал. Скидки уже учтены в итогах чеков.' + future)
+            'Источник: X2POS, выбранный филиал. Скидки уже учтены в итогах чеков.' + financial + future)

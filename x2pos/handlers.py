@@ -2,7 +2,7 @@
 import asyncio
 import os
 from telegram import InlineKeyboardButton as B, InlineKeyboardMarkup as M
-from x2pos import calendar_ui, reports, client
+from x2pos import calendar_ui, reports, expenses, client
 
 def allowed(update):
     return bool(update.effective_user and update.effective_chat
@@ -67,7 +67,7 @@ async def callback(update, context):
             await q.edit_message_text(
                 f"Статистика продаж\nПериод: {start:%d.%m.%Y} — {day:%d.%m.%Y}\n"
                 "Загружаю все страницы X2POS…")
-            result = await asyncio.to_thread(reports.sales, start, day)
+            result = await asyncio.to_thread(expenses.report, start, day)
             await q.message.reply_text(reports.format_report(start, day, result),
                 reply_markup=M([[B("Выбрать другой период", callback_data="x2pos:sales")],
                                 [B("Назад", callback_data="x2pos:home")]]))

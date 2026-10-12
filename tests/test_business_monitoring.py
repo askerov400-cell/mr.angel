@@ -4,7 +4,7 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from types import SimpleNamespace as N
 from unittest.mock import AsyncMock, patch
-from x2pos import reports, business_store as store, analytics, monitor, dialogue, client
+from x2pos import reports, business_store as store, analytics, monitor, dialogue, client, expenses
 from tests.test_sales_reports import order, page
 
 NOW=datetime(2026,10,12,12,0,tzinfo=analytics.ZONE)
@@ -70,14 +70,14 @@ class WorkerTests(unittest.IsolatedAsyncioTestCase):
             await worker.notify('daily',NOW.date(),'synthetic')
             await worker.notify('daily',NOW.date(),'synthetic')
         worker.bot.send_message.assert_awaited_once()
-        with patch.object(reports,'sales',side_effect=reports.Busy('busy')),patch.object(store,'save') as save:
+        with patch.object(expenses,'report',side_effect=reports.Busy('busy')),patch.object(store,'save') as save:
             await worker.tick(NOW)
             save.assert_not_called()
         self.assertEqual(worker.failures,0)
 
     async def test_failed_sync_keeps_previous_snapshot(self):
         worker=monitor.Monitor(N(send_message=AsyncMock()))
-        with patch.object(reports,'sales',side_effect=client.X2Error('unavailable')),patch.object(store,'error'),patch.object(store,'save') as save,patch.object(worker,'notify',new=AsyncMock()) as notify:
+        with patch.object(expenses,'report',side_effect=client.X2Error('unavailable')),patch.object(store,'error'),patch.object(store,'save') as save,patch.object(worker,'notify',new=AsyncMock()) as notify:
             for _ in range(3):await worker.tick(NOW)
             save.assert_not_called()
             notify.assert_awaited_once()
@@ -85,9 +85,9 @@ class WorkerTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_successful_sync_precedes_notifications(self):
         worker=monitor.Monitor(N(send_message=AsyncMock()))
-        with patch.object(reports,'sales',return_value={'daily':data()}) as fetch,patch.object(store,'save') as save,patch.object(worker,'notify',new=AsyncMock()) as notify:
+        with patch.object(expenses,'report',return_value={'daily':data()}) as fetch,patch.object(store,'save') as save,patch.object(worker,'notify',new=AsyncMock()) as notify:
             await worker.tick(NOW)
-            self.assertEqual(fetch.call_args.kwargs,{'daily':True})
+            self.assertEqual(fetch.call_args.kwargs,{})
             self.assertEqual((fetch.call_args.args[1]-fetch.call_args.args[0]).days+1,90)
             save.assert_called_once()
             notify.assert_awaited_once()

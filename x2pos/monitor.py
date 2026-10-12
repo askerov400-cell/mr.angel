@@ -3,7 +3,7 @@ import asyncio
 import logging
 import time
 from datetime import datetime,timedelta
-from x2pos import reports, business_store as store, analytics
+from x2pos import reports, expenses, business_store as store, analytics
 
 logger=logging.getLogger('guardian')
 
@@ -27,7 +27,7 @@ class Monitor:
         now=now or datetime.now(analytics.ZONE)
         first=now.date()-timedelta(days=89)
         try:
-            result=await asyncio.to_thread(reports.sales,first,now.date(),daily=True)
+            result=await asyncio.to_thread(expenses.report,first,now.date())
             await asyncio.to_thread(store.save,result['daily'])
         except reports.Busy:
             return

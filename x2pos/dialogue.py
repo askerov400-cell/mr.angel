@@ -72,9 +72,7 @@ async def direct_answer(owner,text):
         chosen=[days.get((start+timedelta(days=i)).isoformat()) for i in range((end-start).days+1)]
         if any(r is None for r in chosen):
             return 'За этот период сохранённые данные неполные. Итог не рассчитан.'
-        row={k:sum(analytics.num(r[k]) for r in chosen) for k in ('total','sales_total','returns_total','sales_count','returns_count','canceled_count')}
-        for key in ('cost_fifo','cost_average'):
-            row[key]=None if any(r.get(key) is None for r in chosen) else sum(analytics.num(r[key]) for r in chosen)
+        row=analytics.aggregate(chosen)
         updated=datetime.fromisoformat(state['last_success'].replace('Z','+00:00')).astimezone(analytics.ZONE)
         answer=(f'Аналитика бизнеса\nПериод: {start:%d.%m.%Y} — {end:%d.%m.%Y}\n'
             +analytics.day_text(end if start==end else None,row)+f'\nОбновлено: {updated:%d.%m.%Y %H:%M:%S} UTC+5.')
@@ -85,7 +83,7 @@ async def direct_answer(owner,text):
             if result and result['percent'] is not None:
                 answer+=f'\nК среднему за 4 предыдущих таких дня недели: {result["percent"]:+.1f}%.'
                 if end==now.date(): answer+=f' Сравнены часы до {now.hour:02d}:00.'
-        return answer+'\nРасходы, реклама и чистая прибыль пока не подключены. Причина изменений по этим данным неизвестна.'
+        return answer+'\nИсточник: учёт X2POS. Расходы по дате выплаты. Причина изменений по этим данным неизвестна.'
     except ValueError:
         return 'Укажи существующие даты в формате ДД.ММ.ГГГГ или выбери период в календаре.'
     except Exception:
