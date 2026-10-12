@@ -40,8 +40,37 @@ class CalendarTests(unittest.TestCase):
                 q.edit_message_text.assert_not_awaited()
             elif data.startswith('x2pos:day'):
                 self.assertIn('29.02.2024',q.edit_message_text.call_args.args[0])
-                self.assertIn('пока не подключён',q.edit_message_text.call_args.args[0])
+                self.assertIn('Выбери конец периода',q.edit_message_text.call_args.args[0])
             elif data.startswith('x2pos:month'):
                 self.assertIn('недоступна',q.message.reply_text.call_args.args[0])
             else:
                 self.assertIn('Меню обновлено',q.message.reply_text.call_args.args[0])
+
+
+    def test_range_preserved_on_month_navigation(self):
+        start=date(2025,12,15)
+        values=callbacks(calendar_ui.keyboard(2025,12,date(2026,10,12),start=start))
+        self.assertIn('x2pos:month:2026:1:2025-12-15',values)
+        self.assertIn('x2pos:day:2025-12-31:2025-12-15',values)
+        self.assertIn('x2pos:sales',values)
+
+    def test_inclusive_ranges_and_wrong_order(self):
+        cases=[('2026-09-01','2026-09-30',30),
+               ('2026-09-01','2026-09-01',1),
+               ('2025-12-31','2026-01-01',2),
+               ('2024-02-28','2024-03-01',3),
+               ('2026-09-30','2026-09-01',None)]
+        for start,end,days in cases:
+            with self.subTest(start=start,end=end):
+                q=N(answer=AsyncMock(),edit_message_text=AsyncMock(),
+                    message=N(reply_text=AsyncMock()),data=f'x2pos:day:{end}:{start}')
+                update=N(effective_user=N(id=123),effective_chat=N(id=123,type='private'),callback_query=q)
+                with patch.dict('os.environ',{'X2POS_OWNER_ID':'123'}),patch.object(calendar_ui,'today',return_value=date(2026,10,12)):
+                    asyncio.run(handlers.callback(update,N(user_data={})))
+                result=q.edit_message_text.call_args.args[0]
+                if days is None:
+                    self.assertIn('не может быть раньше',result)
+                    self.assertIn(f'x2pos:day:{end}:{start}',callbacks(q.edit_message_text.call_args.kwargs['reply_markup']))
+                else:
+                    self.assertIn(f'Дней: {days} ',result)
+                    self.assertIn('пока не подключён',result)

@@ -45,18 +45,31 @@ async def callback(update, context):
     try:
         if q.data == "x2pos:sales":
             now = calendar_ui.today()
-            await q.message.reply_text("Статистика продаж\nВыбери день:",
+            await q.message.reply_text(calendar_ui.prompt(),
                 reply_markup=calendar_ui.keyboard(now.year, now.month))
-        elif len(parts) == 4 and parts[1] == "month":
-            markup = calendar_ui.keyboard(int(parts[2]), int(parts[3]))
-            await q.edit_message_text("Статистика продаж\nВыбери день:", reply_markup=markup)
-        elif len(parts) == 3 and parts[1] == "day":
+        elif len(parts) in (4, 5) and parts[1] == "month":
+            start = calendar_ui.selected(parts[4]) if len(parts) == 5 else None
+            markup = calendar_ui.keyboard(int(parts[2]), int(parts[3]), start=start)
+            await q.edit_message_text(calendar_ui.prompt(start), reply_markup=markup)
+        elif len(parts) in (3, 4) and parts[1] == "day":
             day = calendar_ui.selected(parts[2])
+            if len(parts) == 3:
+                await q.edit_message_text(calendar_ui.prompt(day),
+                    reply_markup=calendar_ui.keyboard(day.year, day.month, start=day))
+                return
+            start = calendar_ui.selected(parts[3])
+            if day < start:
+                await q.edit_message_text(
+                    calendar_ui.prompt(start) + "\nКонец не может быть раньше начала.",
+                    reply_markup=calendar_ui.keyboard(day.year, day.month, start=start))
+                return
+            days = (day - start).days + 1
             await q.edit_message_text(
-                f"Статистика продаж за {day:%d.%m.%Y}\n\n"
+                f"Статистика продаж\nПериод: {start:%d.%m.%Y} — {day:%d.%m.%Y}\n"
+                f"Дней: {days} (обе даты включены)\n\n"
                 "Расчёт пока не подключён: ожидаем подтверждённый метод "
                 "получения истории продаж через API X2POS.",
-                reply_markup=M([[B("Выбрать другую дату", callback_data="x2pos:sales")],
+                reply_markup=M([[B("Выбрать другой период", callback_data="x2pos:sales")],
                                 [B("Назад", callback_data="x2pos:home")]]))
         else:
             await q.message.reply_text("Меню обновлено. Выбери нужный отчёт.", reply_markup=keyboard())
