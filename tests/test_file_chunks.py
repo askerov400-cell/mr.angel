@@ -19,7 +19,7 @@ class ChunkTests(unittest.TestCase):
     def test_accepts_old_limit_and_exact_new_boundary(self):
         with tempfile.TemporaryDirectory() as folder:
             path=Path(folder)/'large.txt'
-            for length in (60001,extract.MAX_TEXT):
+            for length in (60001,300001,extract.MAX_TEXT):
                 path.write_text('x'*length,encoding='utf-8')
                 self.assertEqual(len(extract.extract(path,'.txt')['text']),length)
             path.write_text('x'*(extract.MAX_TEXT+1),encoding='utf-8')
@@ -76,3 +76,32 @@ class AnalysisTests(unittest.IsolatedAsyncioTestCase):
         create=AsyncMock(return_value=self.reply('Answer'))
         self.assertEqual(await analysis.answer(self.client(create),'short document','Question'),'Answer')
         self.assertEqual(create.await_count,1)
+
+    async def test_large_evidence_merges_all_parts_without_losing_tail(self):
+        reads=[];merges=[]
+        async def create(**kw):
+            system=kw['messages'][0]['content'];text=kw['messages'][-1]['content']
+            self.assertLess(len(text),41000)
+            if 'Сейчас обрабатывается' in system:
+                reads.append(text)
+                tail='LAST VALUE 987654' if 'LAST VALUE 987654' in text else 'No value'
+                return self.reply('context '*1200+tail)
+            if 'Объедини промежуточные' in system:
+                merges.append(text)
+                return self.reply('LAST VALUE 987654' if 'LAST VALUE 987654' in text else 'No relevant data')
+            return self.reply('987654' if 'LAST VALUE 987654' in text else 'missing')
+        source='x'*(analysis.CHUNK_SIZE*8)+'LAST VALUE 987654'
+        result=await analysis.answer(self.client(AsyncMock(side_effect=create)),source,'What is the last value?')
+        self.assertEqual(len(reads),9)
+        self.assertGreater(len(merges),0)
+        self.assertEqual(result,'987654')
+
+    async def test_merge_failure_does_not_claim_complete_analysis(self):
+        async def create(**kw):
+            system=kw['messages'][0]['content']
+            if 'Сейчас обрабатывается' in system:return self.reply('context '*1200)
+            if 'Объедини промежуточные' in system:raise TimeoutError()
+            self.fail('Final answer must not run after incomplete reduction')
+        with self.assertRaises(TimeoutError):
+            await analysis.answer(self.client(AsyncMock(side_effect=create)),
+                                  'x'*(analysis.CHUNK_SIZE*8),'Summarize')
