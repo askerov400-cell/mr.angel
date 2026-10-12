@@ -20,16 +20,19 @@ class CalendarTests(unittest.TestCase):
         now=date(2026,10,12)
         values=callbacks(calendar_ui.keyboard(2026,10,now))
         self.assertIn('x2pos:day:2026-10-12',values)
-        self.assertNotIn('x2pos:day:2026-10-13',values)
-        self.assertNotIn('x2pos:month:2026:11',values)
-        for y,m in ((2026,11),(2026,13),(1999,12)):
+        self.assertIn('x2pos:day:2026-10-13',values)
+        self.assertIn('x2pos:day:2026-10-31',values)
+        self.assertIn('x2pos:month:2026:11',values)
+        self.assertIn('x2pos:day:2027-01-31',callbacks(calendar_ui.keyboard(2027,1,now)))
+        self.assertEqual(calendar_ui.selected('1999-12-31',now),date(1999,12,31))
+        for y,m in ((2026,0),(2026,13),(0,12),(10000,1)):
             with self.assertRaises(ValueError): calendar_ui.keyboard(y,m,now)
-        for value in ('2026-10-13','2025-02-29','1999-12-31','bad'):
+        for value in ('2025-02-29','2026-09-31','bad'):
             with self.assertRaises(ValueError): calendar_ui.selected(value,now)
 
     def test_callbacks_date_and_owner(self):
         for owner,data in ((123,'x2pos:day:2024-02-29'),(999,'x2pos:sales'),
-                           (123,'x2pos:month:2026:11'),(123,'x2pos:check')):
+                           (123,'x2pos:month:2026:13'),(123,'x2pos:check')):
             q=N(answer=AsyncMock(),edit_message_text=AsyncMock(),
                 message=N(reply_text=AsyncMock()),data=data)
             update=N(effective_user=N(id=owner),effective_chat=N(id=owner,type='private'),callback_query=q)
@@ -56,6 +59,9 @@ class CalendarTests(unittest.TestCase):
 
     def test_inclusive_ranges_and_wrong_order(self):
         cases=[('2026-09-01','2026-09-30',30),
+               ('2026-10-01','2026-10-31',31),
+               ('2026-01-01','2027-12-31',730),
+               ('1999-01-01','2000-12-31',731),
                ('2026-09-01','2026-09-01',1),
                ('2025-12-31','2026-01-01',2),
                ('2024-02-28','2024-03-01',3),
@@ -74,3 +80,12 @@ class CalendarTests(unittest.TestCase):
                 else:
                     self.assertIn(f'Дней: {days} ',result)
                     self.assertIn('пока не подключён',result)
+
+
+    def test_calendar_date_boundaries(self):
+        first=callbacks(calendar_ui.keyboard(1,1))
+        last=callbacks(calendar_ui.keyboard(9999,12))
+        self.assertIn('x2pos:day:0001-01-01',first)
+        self.assertNotIn('x2pos:month:0:12',first)
+        self.assertIn('x2pos:day:9999-12-31',last)
+        self.assertNotIn('x2pos:month:10000:1',last)

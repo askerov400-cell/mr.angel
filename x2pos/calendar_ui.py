@@ -11,25 +11,22 @@ def today():
     return datetime.now(ZoneInfo('Asia/Qyzylorda')).date()
 
 def keyboard(year, month, now=None, start=None):
-    now = now or today()
     if start is not None:
         start = selected(start.isoformat(), now)
     suffix = f":{start.isoformat()}" if start else ""
-    first = date(year, month, 1)
-    if year < 2000 or first > now.replace(day=1):
-        raise ValueError('Unavailable month')
+    date(year, month, 1)  # Validate real calendar dates, without a today cutoff.
     rows = [[B(f'{MONTHS[month-1]} {year}', callback_data='x2pos:noop')],
             [B(d, callback_data='x2pos:noop') for d in ('Пн','Вт','Ср','Чт','Пт','Сб','Вс')]]
     for week in calendar.monthcalendar(year, month):
         rows.append([B(('✓ ' if start == date(year, month, day) else '') + str(day) if day else '·', callback_data=(
             f'x2pos:day:{year:04d}-{month:02d}-{day:02d}{suffix}'
-            if day and date(year, month, day) <= now else 'x2pos:noop')) for day in week])
+            if day else 'x2pos:noop')) for day in week])
     previous = (year-1, 12) if month == 1 else (year, month-1)
     following = (year+1, 1) if month == 12 else (year, month+1)
     nav = []
-    if previous[0] >= 2000:
+    if previous[0] >= 1:
         nav.append(B('‹', callback_data=f'x2pos:month:{previous[0]}:{previous[1]}{suffix}'))
-    if date(*following, 1) <= now.replace(day=1):
+    if following[0] <= 9999:
         nav.append(B('›', callback_data=f'x2pos:month:{following[0]}:{following[1]}{suffix}'))
     if nav:
         rows.append(nav)
@@ -40,7 +37,7 @@ def keyboard(year, month, now=None, start=None):
 
 def selected(value, now=None):
     day = date.fromisoformat(value)
-    if value != day.isoformat() or day.year < 2000 or day > (now or today()):
+    if value != day.isoformat():
         raise ValueError('Unavailable day')
     return day
 
