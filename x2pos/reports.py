@@ -1,10 +1,14 @@
 """Sequential, owner-branch sales totals. Never retain raw orders or payments."""
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 from x2pos import client
+
+class Busy(client.X2Error):
+    pass
+
 
 GATE = threading.Lock()
 PAGE_SIZE = 500
@@ -25,14 +29,41 @@ def local_day(value):
     except (AttributeError, TypeError, ValueError, OverflowError):
         raise client.X2Error('Не удалось проверить дату продажи. Полный отчёт не рассчитан.') from None
 
-def sales(start, end):
+def empty_day():
+    return {'total': Decimal(0), 'sales_total': Decimal(0), 'returns_total': Decimal(0),
+            'sales_count': 0, 'returns_count': 0, 'canceled_count': 0,
+            'cost_fifo': Decimal(0), 'cost_average': Decimal(0),
+            'hours': [Decimal(0) for _ in range(24)]}
+
+
+def costs(row, flag):
+    items = row.get('order_items')
+    if isinstance(items, dict):
+        items = list(items.values())
+    values = {}
+    for name, field in (('cost_fifo', 'buy_total_fifo'), ('cost_average', 'buy_total_average')):
+        try:
+            if not isinstance(items, list) or not items:
+                raise ValueError()
+            parts = [amount(item.get(field)) for item in items if isinstance(item, dict)]
+            if len(parts) != len(items) or any((v > 0 if flag == '1' else v < 0) for v in parts):
+                raise ValueError()
+            values[name] = sum(parts, Decimal(0))
+        except (client.X2Error, ValueError):
+            values[name] = None
+    return values
+
+
+def sales(start, end, daily=False):
     if end < start:
         raise ValueError('End before start')
     if not GATE.acquire(blocking=False):
-        raise client.X2Error('Отчёт продаж уже загружается. Дождись его завершения.')
+        raise Busy('Отчёт продаж уже загружается. Дождись его завершения.')
     try:
         deadline = time.monotonic() + TIME_LIMIT
         access = client.employee()
+        by_day = { (start+timedelta(days=i)).isoformat(): empty_day()
+                  for i in range((end-start).days+1) } if daily else {}
         total = sales_total = returns_total = Decimal(0)
         sales_count = returns_count = canceled_count = 0
         seen = set()
@@ -67,6 +98,8 @@ def sales(start, end):
                     raise client.X2Error('В продаже отсутствует статус. Полный отчёт не рассчитан.')
                 if status == 'canceled':
                     canceled_count += 1
+                    if daily:
+                        by_day[day.isoformat()]['canceled_count'] += 1
                     continue
                 if str(row.get('is_deleted', '0')) != '0':
                     raise client.X2Error('В ответе удалённый документ; правила его учёта не подтверждены.')
@@ -76,6 +109,18 @@ def sales(start, end):
                 value = amount(row.get('total'))
                 if (flag == '1' and value > 0) or (flag == '0' and value < 0):
                     raise client.X2Error('Знак суммы не соответствует типу продажи. Полный отчёт не рассчитан.')
+                if daily:
+                    bucket = by_day[day.isoformat()]
+                    bucket['total'] += value
+                    prefix = 'returns' if flag == '1' else 'sales'
+                    bucket[prefix+'_total'] += value
+                    bucket[prefix+'_count'] += 1
+                    stamp = datetime.fromisoformat(row['order_date'].replace('Z', '+00:00'))
+                    if stamp.tzinfo is None:
+                        stamp = stamp.replace(tzinfo=timezone.utc)
+                    bucket['hours'][stamp.astimezone(ZoneInfo('Asia/Qyzylorda')).hour] += value
+                    for name, cost in costs(row, flag).items():
+                        bucket[name] = None if cost is None or bucket[name] is None else bucket[name]+cost
                 total += value
                 if flag == '1':
                     returns_count += 1
@@ -84,9 +129,12 @@ def sales(start, end):
                     sales_count += 1
                     sales_total += value
             page += 1
-        return {'total': total, 'sales_total': sales_total, 'returns_total': returns_total,
+        result = {'total': total, 'sales_total': sales_total, 'returns_total': returns_total,
                 'sales_count': sales_count, 'returns_count': returns_count,
                 'canceled_count': canceled_count}
+        if daily:
+            result['daily'] = by_day
+        return result
     finally:
         GATE.release()
 
