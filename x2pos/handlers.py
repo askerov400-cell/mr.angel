@@ -11,7 +11,8 @@ def allowed(update):
         and update.effective_user.id == update.effective_chat.id)
 
 def keyboard():
-    return M([[B("Проверить подключение",callback_data="x2pos:check")],
+    return M([[B("Остаток на складе",callback_data="x2pos:warehouse")],
+              [B("Проверить подключение",callback_data="x2pos:check")],
               [B("Товары и остатки",callback_data="x2pos:catalog:1:0")]]
              + [[B(title,callback_data=f"x2pos:move:{action}:1")]
                 for action,title in client.ACTIONS.items()])
@@ -28,6 +29,16 @@ async def callback(update, context):
     q = update.callback_query
     await q.answer()
     if not allowed(update):
+        return
+    if q.data == "x2pos:warehouse":
+        await q.message.reply_text(
+            "Остаток на складе\nОбщая стоимость, ₸\n\n"
+            "<pre>Закупочная | Оптовая | Розничная\n"
+            "     —     |    —    |     —</pre>\n\n"
+            "Расчёт пока не подключён: нужно подтвердить закупочную стоимость "
+            "и полноту остатков в API X2POS. Прочерки означают отсутствие "
+            "подтверждённого расчёта.",
+            parse_mode="HTML", reply_markup=keyboard())
         return
     parts = q.data.split(":")
     await q.message.reply_text("Проверяю X2POS…")
