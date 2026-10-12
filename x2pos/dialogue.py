@@ -29,6 +29,16 @@ def llm_enabled():
     return os.getenv('X2POS_LLM_ENABLED','0') == '1'
 
 
+def report_requested(text):
+    text=text.casefold()
+    if any(w in text for w in ('почему','причин','сравн','проанализ','объясн','совет','прогноз')):
+        return False
+    metrics=any(w in text for w in ('продаж','выруч','оборот','расход','прибыл','чек','возврат','себестоим'))
+    request=any(w in text for w in ('покаж','скольк','дай','итог','отчёт','отчет','статистик','посчитай','рассчитай'))
+    dated=any(w in text for w in (' за ','сегодня','вчера','месяц','недел')) or bool(re.search(r'\d{4}-\d{2}-\d{2}|\d{1,2}\.\d{1,2}\.\d{4}',text))
+    return metrics and (request or dated)
+
+
 def period(text, now):
     values=re.findall(r'\b(?:\d{4}-\d{2}-\d{2}|\d{1,2}\.\d{1,2}\.\d{4})\b',text)
     dates=[date.fromisoformat(v) if '-' in v else datetime.strptime(v,'%d.%m.%Y').date() for v in values]

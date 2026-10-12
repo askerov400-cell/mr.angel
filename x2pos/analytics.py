@@ -1,6 +1,7 @@
 """Deterministic sales analysis; inputs contain only computed aggregates."""
 import json
 import os
+import calendar
 from datetime import datetime, timedelta
 from decimal import Decimal
 from zoneinfo import ZoneInfo
@@ -104,6 +105,16 @@ def context_text(state,days,history,now):
           'Используй только рассчитанные profit_fifo/profit_average; null означает неизвестно. '
           'FIFO и средняя — разные оценки. Не вычитай закупки повторно. '
           'Реклама не выделена без подтверждённой категории.\n')
+    text+=f'Покрытие снимка: {min(days) if days else "нет"} — {max(days) if days else "нет"}, {len(days)} дневных строк.\n'
+    months=sorted({day[:7] for day in days})
+    for month in months:
+        year,number=map(int,month.split('-'))
+        expected=calendar.monthrange(year,number)[1]
+        keys=[f'{month}-{day:02d}' for day in range(1,expected+1)]
+        available=[days[k] for k in keys if k in days]
+        complete=len(available)==expected
+        text+=f'Месяц {month}: {len(available)}/{expected} дней; '+('ПОЛНЫЙ МЕСЯЦ. ' if complete else 'НЕПОЛНЫЙ МЕСЯЦ, только доступные дни. ')
+        text+=day_text(None,aggregate(available))+'\n'
     for target in (now.date(),now.date()-timedelta(days=1)):
         row=days.get(target.isoformat())
         if row: text+=day_text(target,row)+'\n'
