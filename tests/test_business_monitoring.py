@@ -92,3 +92,12 @@ class WorkerTests(unittest.IsolatedAsyncioTestCase):
             save.assert_called_once()
             notify.assert_awaited_once()
             self.assertEqual(notify.call_args.args[0],'daily')
+
+
+class PeriodTests(unittest.TestCase):
+    def test_explicit_period_and_named_month(self):
+        self.assertEqual(dialogue.period('Продажи 01.09.2026 — 30.09.2026',NOW),(date(2026,9,1),date(2026,9,30)))
+        self.assertEqual(dialogue.period('Продажи за сентябрь',NOW),(date(2026,9,1),date(2026,9,30)))
+        self.assertEqual(dialogue.period('Продажи за прошлый месяц',NOW),(date(2026,9,1),date(2026,9,30)))
+        start,end=dialogue.period('Продажи за 730 дней',NOW)
+        self.assertEqual((end-start).days+1,730)

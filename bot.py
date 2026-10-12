@@ -339,6 +339,13 @@ async def handle_text(update, context, user_text):
     try:
         file_context = file_reader.current(update, context)
         business_active = BACKEND == "supabase" and not file_context and business_dialogue.active(update,context,user_text)
+        if business_active and not business_dialogue.llm_enabled():
+            answer = await business_dialogue.direct_answer(user_id,user_text)
+            # Business answers do not enter model history or the personal journal.
+            history.pop()
+            for offset in range(0,len(answer),3500):
+                await update.message.reply_text(answer[offset:offset+3500])
+            return
         memory_status = "disabled"
         if update.effective_chat.type != "private":
             long_term_memory = "Личная память в групповых чатах не используется."

@@ -9,7 +9,7 @@ class DialogueTests(unittest.IsolatedAsyncioTestCase):
         update=N(effective_user=N(id=123),effective_chat=N(id=123,type='private'),message=N(text='Как идут продажи?'))
         ctx=N(user_data={},bot=N(send_chat_action=AsyncMock()))
         reply=N(choices=[N(message=N(content='Synthetic business answer'))])
-        with patch.dict('os.environ',{'X2POS_OWNER_ID':'123'}),patch.object(bot,'BACKEND','supabase'),patch.object(bot,'restore_dialogue',new=AsyncMock(return_value=[])),patch.object(bot.automatic_memory,'process',new=AsyncMock()) as personal,patch.object(bot.automatic_memory,'context',new=AsyncMock(return_value='personal')),patch.object(bot.business_dialogue,'context',new=AsyncMock(return_value='X2POS snapshot: total=100; last_success=TEST')) as data,patch.object(bot.deepseek.chat.completions,'create',new=AsyncMock(return_value=reply)) as model,patch.object(bot,'send_reply',new=AsyncMock()):
+        with patch.dict('os.environ',{'X2POS_OWNER_ID':'123','X2POS_LLM_ENABLED':'1'}),patch.object(bot,'BACKEND','supabase'),patch.object(bot,'restore_dialogue',new=AsyncMock(return_value=[])),patch.object(bot.automatic_memory,'process',new=AsyncMock()) as personal,patch.object(bot.automatic_memory,'context',new=AsyncMock(return_value='personal')),patch.object(bot.business_dialogue,'context',new=AsyncMock(return_value='X2POS snapshot: total=100; last_success=TEST')) as data,patch.object(bot.deepseek.chat.completions,'create',new=AsyncMock(return_value=reply)) as model,patch.object(bot,'send_reply',new=AsyncMock()):
             await bot.handle_text(update,ctx,update.message.text)
             data.assert_awaited_once_with(123)
             personal.assert_not_awaited()
@@ -23,3 +23,15 @@ class DialogueTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(bot,'send_reply',new=AsyncMock()):
             await bot.clear_memory(update,ctx)
         self.assertNotIn('business_until',ctx.user_data)
+
+
+    async def test_no_consent_direct_answer_never_calls_external_model(self):
+        bot.conversation_memory.clear()
+        update=N(effective_user=N(id=123),effective_chat=N(id=123,type='private'),message=N(reply_text=AsyncMock()))
+        ctx=N(user_data={},bot=N(send_chat_action=AsyncMock()))
+        with patch.dict('os.environ',{'X2POS_OWNER_ID':'123','X2POS_LLM_ENABLED':'0'}),patch.object(bot,'BACKEND','supabase'),patch.object(bot,'restore_dialogue',new=AsyncMock(return_value=[])),patch.object(bot.business_dialogue,'direct_answer',new=AsyncMock(return_value='Synthetic local aggregate')),patch.object(bot.automatic_memory,'process',new=AsyncMock()) as memory,patch.object(bot.deepseek.chat.completions,'create',new=AsyncMock()) as model:
+            await bot.handle_text(update,ctx,'Продажи за сегодня')
+            model.assert_not_awaited()
+            memory.assert_not_awaited()
+            update.message.reply_text.assert_awaited_once_with('Synthetic local aggregate')
+            self.assertEqual(bot.conversation_memory[(123,123)],[])

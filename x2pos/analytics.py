@@ -24,7 +24,8 @@ def comparison(days, target, hour=None):
 def day_text(day, metrics):
     count = int(metrics['sales_count'])
     avg = num(metrics['sales_total'])/count if count else Decimal(0)
-    text = (f'{day:%d.%m.%Y}: итог с возвратами {money(num(metrics["total"]))} ₸; '
+    label=day.strftime('%d.%m.%Y') if day else 'Итоги периода'
+    text = (f'{label}: итог с возвратами {money(num(metrics["total"]))} ₸; '
             f'продажи {money(num(metrics["sales_total"]))} ₸; чеков {count}; '
             f'средний чек {money(avg)} ₸; возвраты {money(num(metrics["returns_total"]))} ₸ '
             f'({metrics["returns_count"]} документов).')
