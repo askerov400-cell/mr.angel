@@ -28,6 +28,46 @@ class ClientTests(unittest.TestCase):
         self.assertTrue(req.full_url.startswith("https://kaspi.kz/shop/api/v2/orders?"))
         self.assertNotIn("customer",result[0])
         self.assertIn("creationDate",req.full_url)
+
+    def test_browser_headers_are_sent(self):
+        raw=json.dumps({"data":[]}).encode()
+        response=MagicMock();response.__enter__.return_value.read.return_value=raw
+        opener=MagicMock();opener.open.return_value=response
+        with patch.dict("os.environ",{"KASPI_API_TOKEN":"key"}),patch.object(client,"build_opener",return_value=opener), \
+             patch.object(client,"wait_turn"):
+            client.request({"page[number]":0})
+        req=opener.open.call_args.args[0]
+        self.assertIn("Mozilla/5.0",req.get_header("User-agent"))
+        self.assertEqual(req.get_header("Accept"),"application/vnd.api+json")
+        self.assertIn("ru-RU",req.get_header("Accept-language"))
+
+    def test_get_retries_transient_error(self):
+        raw=json.dumps({"data":[]}).encode()
+        response=MagicMock();response.__enter__.return_value.read.return_value=raw
+        opener=MagicMock();opener.open.side_effect=[HTTPError("u",429,"busy",{},None),response]
+        with patch.dict("os.environ",{"KASPI_API_TOKEN":"key"}),patch.object(client,"build_opener",return_value=opener), \
+             patch.object(client,"wait_turn"),patch.object(client.time,"sleep"):
+            self.assertEqual(client.request({"page[number]":0}),[])
+        self.assertEqual(opener.open.call_count,2)
+
+    def test_post_never_retries(self):
+        opener=MagicMock();opener.open.side_effect=HTTPError("u",429,"busy",{},None)
+        with patch.dict("os.environ",{"KASPI_API_TOKEN":"key"}),patch.object(client,"build_opener",return_value=opener), \
+             patch.object(client,"wait_turn"),patch.object(client.time,"sleep"):
+            with self.assertRaises(client.KaspiError):client.request(payload={"data":{}})
+        self.assertEqual(opener.open.call_count,1)
+
+    def test_pacing_waits_between_calls(self):
+        clock=[100.0]
+        def now():
+            clock[0]+=0.2
+            return clock[0]
+        with patch.object(client.time,"monotonic",side_effect=now),patch.object(client.time,"sleep") as sleep:
+            client._last_call[0]=clock[0]
+            client.wait_turn();client.wait_turn()
+        sleep.assert_called()
+        self.assertGreaterEqual(sleep.call_args.args[0],0.5)
+
     def test_redirect_block(self):
         self.assertIsNone(client.NoRedirect().redirect_request(None,None,302,"",{}, "https://evil.invalid"))
     def test_changed_order_never_posts(self):

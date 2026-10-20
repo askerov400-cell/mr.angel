@@ -5,6 +5,8 @@ import re
 import logging
 import ssl
 import socket
+import threading
+import time
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
 from urllib.request import Request, build_opener, HTTPRedirectHandler
@@ -18,6 +20,14 @@ REASONS = {"BUYER_CANCELLATION_BY_MERCHANT":"Покупатель отменил
 STATUS = {"APPROVED_BY_BANK":"Ожидает приёма", "ACCEPTED_BY_MERCHANT":"Принят",
           "COMPLETED":"Завершён","CANCELLED":"Отменён","CANCELLING":"Отменяется",
           "KASPI_DELIVERY_RETURN_REQUESTED":"Запрошен возврат","RETURNED":"Возвращён"}
+USER_AGENT = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+              "(KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36")
+MIN_INTERVAL = 1.0
+RETRY_CODES = {"http_429", "http_500", "http_502", "http_503", "http_504", "timeout", "connection_reset"}
+_pace_lock = threading.Lock()
+_last_call = [0.0]
+
+
 class KaspiError(Exception):
     def __init__(self, message, code="request_failed"):
         super().__init__(message)
@@ -33,15 +43,25 @@ class NoRedirect(HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         return None
 
-def request(params=None, payload=None):
-    token = os.getenv("KASPI_API_TOKEN","").strip()
-    if not token or any(c.isspace() for c in token):
-        raise KaspiError("Проверь API-токен в настройках Railway.")
+def wait_turn():
+    """Не долбить Kaspi: минимум секунда между запросами."""
+    with _pace_lock:
+        now = time.monotonic()
+        pause = _last_call[0] + MIN_INTERVAL - now
+        if pause > 0:
+            time.sleep(pause)
+        _last_call[0] = time.monotonic()
+
+
+def _send(token, params, payload, changing):
     url="https://kaspi.kz/shop/api/v2/orders"
     if params:url+="?"+urlencode(params)
     req=Request(url, data=json.dumps(payload).encode() if payload is not None else None,
-                headers={"X-Auth-Token":token,"Content-Type":"application/vnd.api+json"})
-    changing=payload is not None
+                headers={"X-Auth-Token":token,
+                         "Content-Type":"application/vnd.api+json",
+                         "Accept":"application/vnd.api+json",
+                         "Accept-Language":"ru-RU,ru;q=0.9,en;q=0.8",
+                         "User-Agent":USER_AGENT})
     try:
         with build_opener(NoRedirect()).open(req,timeout=20) as response:
             raw=response.read(2*1024*1024+1)
@@ -78,6 +98,26 @@ def request(params=None, payload=None):
     if not isinstance(result,dict) or "data" not in result:
         raise failure("invalid_schema","Kaspi вернул ответ без данных заказов.",changing)
     return result["data"]
+
+
+def request(params=None, payload=None):
+    token = os.getenv("KASPI_API_TOKEN","").strip()
+    if not token or any(c.isspace() for c in token):
+        raise KaspiError("Проверь API-токен в настройках Railway.")
+    changing = payload is not None
+    delays = (0,) if changing else (0, 1.5, 3.0)
+    last = None
+    for delay in delays:
+        if delay:
+            time.sleep(delay)
+        wait_turn()
+        try:
+            return _send(token, params, payload, changing)
+        except KaspiError as error:
+            if changing or error.code not in RETRY_CODES:
+                raise
+            last = error
+    raise last
 
 
 def clean(item):
