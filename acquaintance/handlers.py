@@ -89,6 +89,7 @@ async def callback(update, context):
                 if not saved or not saved[0].get('saved'):
                     raise RuntimeError('Answer was not confirmed')
             context.user_data.pop('aq_link_off', None)
+            _refresh_profile(owner)
             await send_reply(proxy, 'Знакомство\nОтвет сохранён в долговременной памяти.\n\n' + summary)
         elif operation in ('answer','skip') and len(tail)==1:
             question_id = str(UUID(tail[0]))
@@ -109,6 +110,16 @@ async def callback(update, context):
     except Exception as error:
         logger.warning('Знакомство: действие не выполнено (%s)',type(error).__name__)
         await send_reply(proxy,'Знакомство\nНе удалось подтвердить действие. Ответ ещё не подтверждён; попробуй позже.')
+
+def _refresh_profile(owner):
+    """Сводка владельца обновляется и после ответов знакомства."""
+    try:
+        import asyncio
+        from memory import profile
+        asyncio.get_running_loop().create_task(profile.refresh(owner))
+    except Exception:
+        pass
+
 
 async def suggest(update, context):
     """Свободный текст при открытом вопросе: предложить сохранить как ответ."""
@@ -179,6 +190,7 @@ async def answer(update, context, text=None):
                                    text=text, memory_text=summary)
         if not saved or not saved[0].get('saved'):
             raise RuntimeError('Answer was not confirmed')
+        _refresh_profile(update.effective_user.id)
         await send_reply(update,'Знакомство\n'+('Распознал: «'+text+'»\n' if voice_answer else '')
                          +'Ответ сохранён в долговременной памяти.\n\n'+summary)
         return True
