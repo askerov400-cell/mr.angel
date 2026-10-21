@@ -311,6 +311,7 @@ async def handle_message(
 
     if await interface.text(update,context,{"memory":show_memory,"remember":remember}):return
     if await acquaintance_ui.answer(update,context):return
+    await acquaintance_ui.suggest(update,context)
     await handle_text(update, context, update.message.text)
 
 

@@ -27,10 +27,20 @@ async def process(user_id, text, history=None):
         saved = await asyncio.to_thread(save_automatic, user_id, item)
         status = "saved" if saved else "unchanged"
         logger.info("Память: %s, тип %s", status, item["type"])
+        if status == "saved":
+            asyncio.create_task(_refresh_profile(user_id))
         return status
     except Exception as error:
         logger.warning("Память: операция не выполнена (%s)", type(error).__name__)
         return "failed"
+
+
+async def _refresh_profile(user_id):
+    from memory import profile
+    try:
+        await profile.refresh(user_id)
+    except Exception:
+        pass
 
 
 def format_memory(groups, human=False):
@@ -56,6 +66,12 @@ def format_memory(groups, human=False):
                 lines.append(label + ": " + json.dumps(text, ensure_ascii=False))
             seen.add(marker)
     for row in groups.get("user_states", []):
+        if row.get("state_key") == "owner_profile":
+            from memory import profile
+            block = profile.format_profile(row.get("state_value"))
+            if block:
+                lines.insert(0, block)
+            continue
         if human:
             name = {"weight": "Вес", "added_sugar_consumption": "Употребление сахара"}.get(
                 row["state_key"], row["state_key"].replace("_", " "))

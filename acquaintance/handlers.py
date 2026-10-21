@@ -1,5 +1,6 @@
 """Private UI and explicitly linked answers; ordinary chat is never hijacked."""
 import logging
+from datetime import datetime, timezone
 import os
 from types import SimpleNamespace
 from uuid import UUID
@@ -11,7 +12,8 @@ from . import store, answers
 logger = logging.getLogger('guardian')
 
 def available():
-    return os.getenv('MEMORY_BACKEND','sqlite') == 'supabase'
+    from database import BACKEND
+    return BACKEND == 'supabase'
 
 def controls(enabled, pending=None):
     rows = [[B('Пауза' if enabled else 'Включить вопросы',callback_data='aq:pause' if enabled else 'aq:enable')]]
@@ -65,6 +67,29 @@ async def callback(update, context):
         elif operation=='test':
             await worker.deliver(owner,manual=True)
             await panel(proxy,context)
+        elif operation in ('link','nolink') and len(tail)==1:
+            question_id = str(UUID(tail[0]))
+            candidate = context.user_data.pop('aq_candidate', None)
+            if operation == 'nolink':
+                context.user_data['aq_link_off'] = owner
+                await send_reply(proxy, 'Знакомство\nХорошо, это сообщение не записываю как ответ.')
+                return
+            if not candidate or candidate.get('id') != question_id:
+                await send_reply(proxy, 'Знакомство\nОтвет устарел. Ответь на вопрос через «Ответить».')
+                return
+            async with worker.lock(owner):
+                rows = await store.action(owner, 'get', question_id)
+                if not rows or rows[0]['status'] not in ('sending', 'sent'):
+                    await send_reply(proxy, 'Знакомство\nВопрос уже закрыт.')
+                    return
+                summary = await answers.summarize(rows[0].get('question_text', ''), candidate['text'],
+                                                  getattr(worker, 'client', None))
+                saved = await store.action(owner, 'answer', question_id, text=candidate['text'],
+                                           memory_text=summary)
+                if not saved or not saved[0].get('saved'):
+                    raise RuntimeError('Answer was not confirmed')
+            context.user_data.pop('aq_link_off', None)
+            await send_reply(proxy, 'Знакомство\nОтвет сохранён в долговременной памяти.\n\n' + summary)
         elif operation in ('answer','skip') and len(tail)==1:
             question_id = str(UUID(tail[0]))
             async with worker.lock(owner):
@@ -84,6 +109,45 @@ async def callback(update, context):
     except Exception as error:
         logger.warning('Знакомство: действие не выполнено (%s)',type(error).__name__)
         await send_reply(proxy,'Знакомство\nНе удалось подтвердить действие. Ответ ещё не подтверждён; попробуй позже.')
+
+async def suggest(update, context):
+    """Свободный текст при открытом вопросе: предложить сохранить как ответ."""
+    try:
+        if not private(update) or not available():
+            return False
+    except Exception:
+        return False
+    message = getattr(update, 'message', None)
+    if not message or getattr(message, 'reply_to_message', None):
+        return False
+    text = (getattr(message, 'text', '') or '').strip()
+    if not text or text.startswith('/'):
+        return False
+    owner = update.effective_user.id
+    if getattr(context, 'user_data', None) is None:
+        return False
+    if context.user_data.get('aq_link_off') == owner:
+        return False
+    try:
+        rows = await store.action(owner, 'status')
+        pending = (rows[0] if rows else {}).get('pending') or {}
+        question_id = pending.get('id')
+        sent_at = pending.get('sent_at')
+        if not question_id or not sent_at or context.user_data.get('aq_suggested') == question_id:
+            return False
+        stamp = datetime.fromisoformat(str(sent_at).replace('Z', '+00:00'))
+        if (datetime.now(timezone.utc) - stamp).total_seconds() > 20 * 60:
+            return False
+        context.user_data['aq_suggested'] = question_id
+        context.user_data['aq_candidate'] = {'id': question_id, 'text': text[:1400]}
+        await send_reply(update, 'Это ответ на вопрос знакомства?\n\n«' +
+                         (pending.get('question_text') or '')[:250] + '»',
+                         reply_markup=M([[B('Да, сохранить', callback_data='aq:link:' + question_id)],
+                                        [B('Нет, это не ответ', callback_data='aq:nolink:' + question_id)]]))
+    except Exception as error:
+        logger.warning('Знакомство: подсказка недоступна (%s)', type(error).__name__)
+    return False
+
 
 async def answer(update, context, text=None):
     if not private(update) or not available():
