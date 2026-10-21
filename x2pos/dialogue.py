@@ -11,12 +11,17 @@ from x2pos.handlers import allowed
 WORDS=('продаж','выруч','оборот','чек','возврат','бизнес','прибыл','марж','доход',
        'x2pos','х2пос','расход','реклам','просел','просад','динамик','аналити')
 
+def is_request(text):
+    """Текущее сообщение — бизнес-запрос, а не личная реплика."""
+    from x2pos.month_ranking import requested
+    value=(text or '').casefold()
+    return any(word in value for word in WORDS) or requested(value)
+
 def active(update,context,text):
     if not allowed(update) or getattr(context,'user_data',None) is None: return False
     if context.user_data.get('business_until',0)<=time.monotonic():
         context.user_data.pop('business_period',None)
-    from x2pos.month_ranking import requested
-    if any(word in text.casefold() for word in WORDS) or requested(text):
+    if is_request(text):
         context.user_data['business_until']=time.monotonic()+1800
     return context.user_data.get('business_until',0)>time.monotonic()
 
