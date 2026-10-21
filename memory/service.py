@@ -78,3 +78,19 @@ async def context(user_id, human=False):
     except Exception as error:
         logger.warning("Память: чтение не выполнено (%s)", type(error).__name__)
         return "Долговременная память сейчас недоступна; используй только текущий диалог."
+
+
+def status_report(data, backend, now=None):
+    """Текст служебной команды: что мешает записи памяти."""
+    import time as _time
+    data = data or {}
+    moment = _time.monotonic() if now is None else now
+    until = float(data.get('business_until') or 0)
+    window = ('активно ещё ' + str(max(1, round(until - moment))) + ' с') if until > moment else 'нет'
+    return '\n'.join([
+        'Память · сборка memory-gate-21.10',
+        'backend=' + str(backend),
+        'Последний статус записи: ' + str(data.get('memory_status') or 'нет данных'),
+        'Бизнес-окно: ' + window,
+        'Файл в контексте: ' + ('да' if data.get('document_context') else 'нет'),
+    ])

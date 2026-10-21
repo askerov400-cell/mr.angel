@@ -68,6 +68,7 @@ async def telegram_ready(app):
             BotCommand('menu','Главное меню'),BotCommand('memory','Моя память'),
             BotCommand('remember','Сохранить важный факт'),BotCommand('clear','Начать новый диалог'),
             BotCommand('cancel','Отменить текущее действие'),
+            BotCommand('memstatus','Проверка записи памяти'),
             BotCommand('questions','Знакомство и вопросы'),
             BotCommand('files','Форматы и чтение файлов'),
             BotCommand('kaspi','Заказы Kaspi'),
@@ -355,6 +356,8 @@ async def handle_text(update, context, user_text):
         elif BACKEND == "supabase":
             if not file_context and not business_dialogue.is_request(user_text):
                 memory_status = await automatic_memory.process(user_id, user_text, history=history[:-1])
+            if getattr(context,'user_data',None) is not None:
+                context.user_data['memory_status'] = memory_status
             long_term_memory = await automatic_memory.context(user_id)
         else:
             long_term_memory = await asyncio.to_thread(build_long_term_memory, user_id)
@@ -439,6 +442,15 @@ async def handle_text(update, context, user_text):
         )
 
 
+async def memstatus(update, context):
+    owner = os.getenv("X2POS_OWNER_ID", "")
+    if update.effective_chat.type != "private" or str(update.effective_user.id) != owner:
+        await update.message.reply_text("Команда доступна только владельцу.")
+        return
+    await update.message.reply_text(automatic_memory.status_report(
+        getattr(context, "user_data", None), BACKEND))
+
+
 def main():
 
     # Создаёт таблицы, если их ещё нет.
@@ -474,6 +486,7 @@ def main():
     app.add_handler(CommandHandler("clear", clear_memory))
     app.add_handler(CommandHandler("remember", remember))
     app.add_handler(CommandHandler("memory", show_memory))
+    app.add_handler(CommandHandler("memstatus", memstatus))
     app.add_handler(MessageHandler(
         filters.Regex(COMMAND_PATTERN) & ~filters.COMMAND,
         handle_formatted_command,

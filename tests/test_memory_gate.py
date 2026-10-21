@@ -1,6 +1,7 @@
 import unittest
 from database import select_backend
 from x2pos import dialogue
+from memory import service
 
 
 class BackendSelectionTests(unittest.TestCase):
@@ -29,3 +30,18 @@ class BusinessGateTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+class StatusReportTests(unittest.TestCase):
+    def test_report_names_the_blocker(self):
+        report = service.status_report({'memory_status': 'saved', 'business_until': 100.0,
+                                        'document_context': {'text':'x'}}, 'supabase', now=40.0)
+        self.assertIn('backend=supabase', report)
+        self.assertIn('Последний статус записи: saved', report)
+        self.assertIn('активно ещё 60', report)
+        self.assertIn('Файл в контексте: да', report)
+
+    def test_report_without_window_or_file(self):
+        report = service.status_report({'memory_status': 'ignored'}, 'sqlite', now=10.0)
+        self.assertIn('Бизнес-окно: нет', report)
+        self.assertIn('Файл в контексте: нет', report)
+        self.assertIn('backend=sqlite', report)
