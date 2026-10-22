@@ -12,12 +12,13 @@ HELP='❔ Помощь'
 QUESTIONS='🤝 Знакомство'
 KASPI='🛍 Kaspi'
 X2POS='📊 Аналитика бизнеса'
+KIDS='📅 Расписание детей'
 LEGACY_X2POS='📦 X2POS'
-LABELS={CHAT,MEMORY,SAVE,NEW,HELP,QUESTIONS,KASPI,X2POS,LEGACY_X2POS}
+LABELS={CHAT,MEMORY,SAVE,NEW,HELP,QUESTIONS,KASPI,X2POS,LEGACY_X2POS,KIDS}
 SERVICE_PREFIXES=('Знакомство\n','Хранитель\n','Возможности Хранителя\n','Запись в память\n','Новый диалог\n','Общение\n','Действие отменено.','Подтверждение уже не действует.')
 
 def keyboard():
-    return ReplyKeyboardMarkup([[CHAT,MEMORY],[SAVE,QUESTIONS],[NEW,HELP],[KASPI,X2POS]],resize_keyboard=True,is_persistent=True,input_field_placeholder='Напиши сообщение Хранителю')
+    return ReplyKeyboardMarkup([[CHAT,MEMORY],[SAVE,QUESTIONS],[NEW,HELP],[KASPI,X2POS],[KIDS]],resize_keyboard=True,is_persistent=True,input_field_placeholder='Напиши сообщение Хранителю')
 
 def private(update):
     return bool(update.effective_user and update.effective_chat and update.effective_chat.type=='private' and update.effective_user.id==update.effective_chat.id)
@@ -49,6 +50,9 @@ async def text(update,context,handlers):
             await panel(update,context)
         elif content==QUESTIONS:
             from acquaintance.handlers import panel
+            await panel(update,context)
+        elif content==KIDS:
+            from kids.handlers import panel
             await panel(update,context)
         elif content==MEMORY:
             await handlers['memory'](update,context)

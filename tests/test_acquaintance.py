@@ -28,11 +28,11 @@ class ScheduleTests(unittest.TestCase):
             times = [datetime.fromisoformat(row['at']) for row in plan]
             self.assertTrue(all(schedule.in_window(t) for t in times))
             self.assertTrue(all(b-a >= timedelta(minutes=10) for a,b in zip(times,times[1:])))
-        self.assertEqual(counts,set(range(20,31)))
+        self.assertEqual(counts,set(range(8,11)))
     def test_slots_are_spread_and_random(self):
         first=schedule.slots(date(2026,10,9),random.Random(1))
         second=schedule.slots(date(2026,10,9),random.Random(2))
-        self.assertTrue(20 <= len(first) <= 30);self.assertNotEqual(first,second)
+        self.assertTrue(8 <= len(first) <= 10);self.assertNotEqual(first,second)
         times=[datetime.fromisoformat(x['at']) for x in first]
         self.assertTrue(all(schedule.in_window(x) for x in times))
         self.assertTrue(all(b-a>=timedelta(minutes=10) for a,b in zip(times,times[1:])))

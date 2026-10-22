@@ -1,4 +1,4 @@
-"""Twenty to thirty persisted random slots in the owner's local window."""
+"""Eight to ten persisted random slots in the owner's local window."""
 from datetime import datetime, time, timedelta, timezone
 from random import SystemRandom
 from zoneinfo import ZoneInfo
@@ -14,7 +14,7 @@ def in_window(now):
     return time(9) <= local.time().replace(tzinfo=None) < time(23)
 
 def slots(day, rng=RANDOM):
-    count = rng.randrange(20, 31)
+    count = rng.randrange(8, 11)
     start = datetime.combine(day, time(9), ZONE)
     minutes = 14 * 60
     # One slot per segment, with five-minute margins: >= ten minutes apart.

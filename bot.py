@@ -34,6 +34,8 @@ from x2pos import handlers as x2pos_ui
 from x2pos import monitor as business_monitor, dialogue as business_dialogue
 from acquaintance import handlers as acquaintance_ui
 from acquaintance import worker as acquaintance_worker
+from motivation import handlers as motivation_ui, worker as motivation_worker
+from kids import handlers as kids_ui, worker as kids_worker
 
 
 logging.basicConfig(
@@ -73,11 +75,15 @@ async def telegram_ready(app):
             BotCommand('files','Форматы и чтение файлов'),
             BotCommand('kaspi','Заказы Kaspi'),
             BotCommand('x2pos','Аналитика бизнеса'),
+            BotCommand('motivation','Мотивация на день'),
+            BotCommand('kids','Расписание детей'),
         ],scope=BotCommandScopeAllPrivateChats())
     except Exception as error:
         logger.warning('Меню команд недоступно (%s)',type(error).__name__)
     if BACKEND == "supabase":
         await acquaintance_worker.start(app, deepseek)
+        await motivation_worker.start(app)
+        await kids_worker.start(app)
         if all(os.getenv(name) for name in ('X2POS_API_KEY','X2POS_OWNER_ID','X2POS_BRANCH_ID')):
             await business_monitor.start(app)
     try:
@@ -99,6 +105,8 @@ async def telegram_ready(app):
 
 async def stop_workers(app):
     await business_monitor.stop(app)
+    await motivation_worker.stop(app)
+    await kids_worker.stop(app)
     await acquaintance_worker.stop(app)
 
 
@@ -309,6 +317,10 @@ async def handle_message(
     ):
         return
 
+    application = getattr(context, 'application', None)
+    if (application is not None and update.effective_user and update.effective_chat
+            and update.effective_chat.type == 'private'):
+        application.bot_data.setdefault('last_activity', {})[update.effective_user.id] = time.time()
     if await interface.text(update,context,{"memory":show_memory,"remember":remember}):return
     if await acquaintance_ui.answer(update,context):return
     await acquaintance_ui.suggest(update,context)
@@ -488,6 +500,10 @@ def main():
     app.add_handler(CommandHandler("remember", remember))
     app.add_handler(CommandHandler("memory", show_memory))
     app.add_handler(CommandHandler("memstatus", memstatus))
+    app.add_handler(CommandHandler("motivation", motivation_ui.panel))
+    app.add_handler(CommandHandler("kids", kids_ui.panel))
+    app.add_handler(CallbackQueryHandler(kids_ui.callback,pattern=r"^kids:"))
+    app.add_handler(CallbackQueryHandler(motivation_ui.callback,pattern=r"^mot:"))
     app.add_handler(MessageHandler(
         filters.Regex(COMMAND_PATTERN) & ~filters.COMMAND,
         handle_formatted_command,
