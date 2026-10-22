@@ -2,7 +2,7 @@
 import asyncio
 import os
 from telegram import InlineKeyboardButton as B, InlineKeyboardMarkup as M
-from x2pos import calendar_ui, reports, expenses, client
+from x2pos import calendar_ui, reports, expenses, client, warehouse
 
 def allowed(update):
     return bool(update.effective_user and update.effective_chat
@@ -22,20 +22,54 @@ async def panel(update, context):
     await update.message.reply_text("Аналитика бизнеса\nОстаток на складе и статистика продаж X2POS.",
                                     reply_markup=keyboard())
 
+
+async def warehouse_view(message, context, refresh=False):
+    if refresh or not getattr(context, "user_data", None) or not context.user_data.get("warehouse"):
+        await message.reply_text("Собираю остатки X2POS. Это несколько запросов, до полуминуты.")
+        try:
+            data = await asyncio.to_thread(warehouse.collect)
+        except (client.X2Error, ValueError) as error:
+            await message.reply_text(str(error) if str(error) else "X2POS не отдал остатки.")
+            return
+        context.user_data["warehouse"] = data
+    data = context.user_data["warehouse"]
+    await message.reply_text(warehouse.summary_text(data), reply_markup=warehouse_keyboard())
+
+
+def warehouse_keyboard():
+    return M([[B("Товары", callback_data="x2pos:stock:0"),
+               B("Обновить", callback_data="x2pos:warehouse")]])
+
+
+async def stock_page(message, context, page):
+    data = getattr(context, "user_data", None) and context.user_data.get("warehouse")
+    if not data:
+        await warehouse_view(message, context, refresh=True)
+        return
+    text, pages = warehouse.list_text(data, page)
+    page = max(0, min(page, pages - 1))
+    rows = []
+    if pages > 1:
+        rows.append([B("←", callback_data="x2pos:stock:" + str(page - 1)),
+                     B(str(page + 1) + "/" + str(pages), callback_data="x2pos:noop"),
+                     B("→", callback_data="x2pos:stock:" + str(page + 1))])
+    rows.append([B("Сводка", callback_data="x2pos:warehouse")])
+    await message.reply_text(text, reply_markup=M(rows))
+
 async def callback(update, context):
     q = update.callback_query
     await q.answer()
     if not allowed(update):
         return
     if q.data == "x2pos:warehouse":
-        await q.message.reply_text(
-            "Остаток на складе\nОбщая стоимость, ₸\n\n"
-            "<pre>Закупочная | Оптовая | Розничная\n"
-            "     —     |    —    |     —</pre>\n\n"
-            "X2POS подтвердил: готового метода закупочной стоимости склада нет. "
-            "Для оптового и розничного итогов ещё требуется проверка полноты остатков. Прочерки означают отсутствие "
-            "подтверждённого расчёта.",
-            parse_mode="HTML", reply_markup=keyboard())
+        await warehouse_view(q.message, context, refresh=True)
+        return
+    if q.data.startswith("x2pos:stock:"):
+        try:
+            page = int(q.data.rsplit(":", 1)[1])
+        except ValueError:
+            return
+        await stock_page(q.message, context, page)
         return
     parts = q.data.split(":")
     if q.data == "x2pos:noop":
