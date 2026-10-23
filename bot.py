@@ -34,6 +34,7 @@ from x2pos import handlers as x2pos_ui
 from x2pos import monitor as business_monitor, dialogue as business_dialogue
 from acquaintance import handlers as acquaintance_ui
 from acquaintance import worker as acquaintance_worker
+from notifications import allowed
 from motivation import handlers as motivation_ui, worker as motivation_worker
 from kids import handlers as kids_ui, worker as kids_worker
 
@@ -82,8 +83,10 @@ async def telegram_ready(app):
         logger.warning('Меню команд недоступно (%s)',type(error).__name__)
     if BACKEND == "supabase":
         await acquaintance_worker.start(app, deepseek)
-        await motivation_worker.start(app)
-        await kids_worker.start(app)
+        if allowed('motivation'):
+            await motivation_worker.start(app)
+        if allowed('kids'):
+            await kids_worker.start(app)
         if all(os.getenv(name) for name in ('X2POS_API_KEY','X2POS_OWNER_ID','X2POS_BRANCH_ID')):
             await business_monitor.start(app)
     try:

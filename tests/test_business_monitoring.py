@@ -4,6 +4,7 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from types import SimpleNamespace as N
 from unittest.mock import AsyncMock, patch
+import notifications
 from x2pos import reports, business_store as store, analytics, monitor, dialogue, client, expenses
 from tests.test_sales_reports import order, page
 
@@ -66,7 +67,7 @@ class AnalyticsTests(unittest.TestCase):
 class WorkerTests(unittest.IsolatedAsyncioTestCase):
     async def test_claim_prevents_duplicate_sends_and_busy_skips(self):
         worker=monitor.Monitor(N(send_message=AsyncMock()))
-        with patch.dict('os.environ',ENV),patch.object(store,'claim',side_effect=[True,False]):
+        with patch.dict('os.environ',ENV),patch.object(notifications,'ALLOWED',{'business'}),patch.object(store,'claim',side_effect=[True,False]):
             await worker.notify('daily',NOW.date(),'synthetic')
             await worker.notify('daily',NOW.date(),'synthetic')
         worker.bot.send_message.assert_awaited_once()
@@ -74,6 +75,14 @@ class WorkerTests(unittest.IsolatedAsyncioTestCase):
             await worker.tick(NOW)
             save.assert_not_called()
         self.assertEqual(worker.failures,0)
+
+    async def test_notifications_off_by_default(self):
+        worker=monitor.Monitor(N(send_message=AsyncMock()))
+        with patch.dict('os.environ',ENV),patch.object(store,'claim') as claim:
+            sent=await worker.notify('daily',NOW.date(),'synthetic')
+        self.assertFalse(sent)
+        claim.assert_not_called()
+        worker.bot.send_message.assert_not_awaited()
 
     async def test_failed_sync_keeps_previous_snapshot(self):
         worker=monitor.Monitor(N(send_message=AsyncMock()))

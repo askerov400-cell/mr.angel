@@ -13,6 +13,8 @@ class Monitor:
         self.failures=0
 
     async def notify(self,kind,day,text):
+        from notifications import allowed
+        if not allowed('business'): return False
         owner,_=store.identity()
         if not await asyncio.to_thread(store.claim,kind,day): return False
         # Claim before delivery: unknown send result never triggers duplicate sends.
