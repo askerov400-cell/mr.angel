@@ -9,29 +9,34 @@ MOMENT = datetime(2026, 10, 22, 10, 0, tzinfo=store.ZONE)
 
 
 class PlanTests(unittest.TestCase):
-    def test_six_nudges_with_area_counts(self):
+    def test_nudges_skip_sport_area(self):
         rows = store.plan(MOMENT.date(), rng=__import__('random').Random(1))
-        self.assertEqual(len(rows), 6)
+        self.assertEqual(len(rows), 4)
         counts = {}
         for row in rows:
             counts[row['area']] = counts.get(row['area'], 0) + 1
             moment = datetime.fromisoformat(row['at'])
             self.assertTrue(9 <= moment.hour < 22, row)
-        self.assertEqual(counts, {'sport': 2, 'business': 2, 'guardian': 1, 'family': 1})
+        self.assertEqual(counts, {'business': 2, 'guardian': 1, 'family': 1})
 
     def test_due_includes_later_and_plan(self):
-        data = {'plan': [{'area': 'sport', 'at': (MOMENT - timedelta(minutes=5)).isoformat(), 'sent': False},
+        data = {'plan': [{'area': 'business', 'at': (MOMENT - timedelta(minutes=5)).isoformat(), 'sent': False},
                          {'area': 'family', 'at': (MOMENT + timedelta(hours=3)).isoformat(), 'sent': False}],
                 'later': {'area': 'business', 'at': (MOMENT - timedelta(minutes=1)).isoformat(), 'sent': False}}
         rows = store.due(data, MOMENT)
         self.assertEqual([kind for kind, _ in rows], ['later', 'plan'])
-        self.assertEqual(rows[1][1]['area'], 'sport')
+        self.assertEqual(rows[1][1]['area'], 'business')
+
+    def test_due_ignores_disabled_sport(self):
+        data = {'plan': [{'area': 'sport', 'at': (MOMENT - timedelta(minutes=5)).isoformat(), 'sent': False}],
+                'later': {'area': 'sport', 'at': (MOMENT - timedelta(minutes=1)).isoformat(), 'sent': False}}
+        self.assertEqual(store.due(data, MOMENT), [])
 
     def test_fresh_keeps_done_and_enabled(self):
         data = store.fresh(MOMENT.date(), {'enabled': False, 'done': {'sport': 2}})
         self.assertFalse(data['enabled'])
         self.assertEqual(data['done'], {'sport': 2})
-        self.assertEqual(len(data['plan']), 6)
+        self.assertEqual(len(data['plan']), 4)
 
     def test_texts_cover_all_areas_and_mention_streak(self):
         for area in store.AREAS:
@@ -42,7 +47,7 @@ class PlanTests(unittest.TestCase):
 class WorkerTests(unittest.IsolatedAsyncioTestCase):
     def data(self):
         return {'enabled': True, 'day': MOMENT.date().isoformat(),
-                'plan': [{'area': 'sport', 'at': (MOMENT - timedelta(minutes=2)).isoformat(), 'sent': False}],
+                'plan': [{'area': 'business', 'at': (MOMENT - timedelta(minutes=2)).isoformat(), 'sent': False}],
                 'done': {}, 'later': None}
 
     def app(self, last=0):

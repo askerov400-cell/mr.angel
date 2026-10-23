@@ -11,6 +11,7 @@ KEY = 'motivation'
 RANDOM = SystemRandom()
 
 AREAS = {'sport': 'Спорт', 'business': 'Бизнес', 'guardian': 'Хранитель', 'family': 'Семья и дети'}
+DISABLED_AREAS = {'sport'}
 LAYOUT = (('sport', '09:20'), ('business', '11:50'), ('guardian', '14:10'),
           ('sport', '16:40'), ('business', '19:00'), ('family', '20:40'))
 START = clock(9)
@@ -46,6 +47,8 @@ def save(owner, data):
 def plan(day, rng=RANDOM):
     rows = []
     for area, moment in LAYOUT:
+        if area in DISABLED_AREAS:
+            continue
         hour, minute = (int(part) for part in moment.split(':'))
         jitter = rng.randrange(-10, 11)
         at = datetime.combine(day, clock(hour, minute), ZONE) + timedelta(minutes=jitter)
@@ -63,14 +66,14 @@ def fresh(day, previous=None, rng=RANDOM):
 def due(data, moment):
     rows = []
     later = data.get('later')
-    if isinstance(later, dict) and not later.get('sent'):
+    if isinstance(later, dict) and not later.get('sent') and later.get('area') not in DISABLED_AREAS:
         try:
             if datetime.fromisoformat(later['at']) <= moment:
                 rows.append(('later', later))
         except (KeyError, ValueError):
             pass
     for item in data.get('plan') or []:
-        if item.get('sent'):
+        if item.get('sent') or item.get('area') in DISABLED_AREAS:
             continue
         try:
             if datetime.fromisoformat(item['at']) <= moment:
