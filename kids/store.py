@@ -12,6 +12,7 @@ def local_now():
     from datetime import datetime
     return datetime.now(ZONE)
 DAYS = ('mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun')
+DAY_SHORT = {'mon': 'Пн', 'tue': 'Вт', 'wed': 'Ср', 'thu': 'Чт', 'fri': 'Пт', 'sat': 'Сб', 'sun': 'Вс'}
 DAY_NAMES = {'mon': 'Понедельник', 'tue': 'Вторник', 'wed': 'Среда', 'thu': 'Четверг', 'fri': 'Пятница',
              'sat': 'Суббота', 'sun': 'Воскресенье'}
 LEAD = 20

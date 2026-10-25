@@ -50,6 +50,12 @@ class ScheduleTests(unittest.TestCase):
                 if button.callback_data.startswith('kids:day:')]
         self.assertEqual(days, ['kids:day:' + key for key in ('mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun')])
 
+    def test_day_buttons_are_short_names(self):
+        markup = handlers.keyboard(store.SEED, 'mon')
+        labels = [button.text.replace('✅ ', '').replace('· ', '') for row in markup.inline_keyboard
+                  for button in row if button.callback_data.startswith('kids:day:')]
+        self.assertEqual(labels, ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'])
+
     def test_other_day_is_reachable_from_monday(self):
         markup = handlers.keyboard(store.SEED, 'mon')
         labels = [button.callback_data for row in markup.inline_keyboard for button in row]

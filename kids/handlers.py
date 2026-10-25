@@ -17,9 +17,9 @@ def owner_allowed(update):
 
 
 def keyboard(data, day, enabled=True):
-    rows = [[B(('· ' if key != day else '✅ ') + store.DAY_NAMES[key][:2], callback_data='kids:day:' + key)
+    rows = [[B(('· ' if key != day else '✅ ') + store.DAY_SHORT[key], callback_data='kids:day:' + key)
              for key in DAYS[:4]],
-            [B(('· ' if key != day else '✅ ') + store.DAY_NAMES[key][:2], callback_data='kids:day:' + key)
+            [B(('· ' if key != day else '✅ ') + store.DAY_SHORT[key], callback_data='kids:day:' + key)
              for key in DAYS[4:]]]
     for slug, child in (data.get('children') or {}).items():
         if child.get('week'):
