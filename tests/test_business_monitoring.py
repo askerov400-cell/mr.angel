@@ -84,6 +84,27 @@ class WorkerTests(unittest.IsolatedAsyncioTestCase):
         claim.assert_not_called()
         worker.bot.send_message.assert_not_awaited()
 
+    async def test_morning_report_only_after_nine(self):
+        worker=monitor.Monitor(N(send_message=AsyncMock()))
+        early=datetime(2026,10,12,8,55,tzinfo=analytics.ZONE)
+        with patch.object(expenses,'report',return_value={'daily':data()}),patch.object(store,'save'),patch.object(worker,'notify',new=AsyncMock()) as notify:
+            await worker.tick(early)
+        notify.assert_not_awaited()
+        with patch.object(expenses,'report',return_value={'daily':data()}),patch.object(store,'save'),patch.object(worker,'notify',new=AsyncMock()) as notify:
+            await worker.tick(NOW)
+        notify.assert_awaited_once()
+        self.assertEqual(notify.call_args.args[0],'morning')
+
+    async def test_morning_report_respects_gate(self):
+        worker=monitor.Monitor(N(send_message=AsyncMock()))
+        text='Аналитика бизнеса — сводка за вчера'
+        with patch.dict('os.environ',ENV),patch.object(notifications,'ALLOWED',set()),patch.object(store,'claim',return_value=True) as claim:
+            self.assertFalse(await worker.notify('morning',NOW.date(),text))
+        claim.assert_not_called()
+        with patch.dict('os.environ',ENV),patch.object(store,'claim',return_value=True),patch.object(notifications,'ALLOWED',{'x2pos_morning'}):
+            self.assertTrue(await worker.notify('morning',NOW.date(),text))
+        worker.bot.send_message.assert_awaited_once()
+
     async def test_failed_sync_keeps_previous_snapshot(self):
         worker=monitor.Monitor(N(send_message=AsyncMock()))
         with patch.object(expenses,'report',side_effect=client.X2Error('unavailable')),patch.object(store,'error'),patch.object(store,'save') as save,patch.object(worker,'notify',new=AsyncMock()) as notify:
@@ -100,7 +121,7 @@ class WorkerTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual((fetch.call_args.args[1]-fetch.call_args.args[0]).days+1,90)
             save.assert_called_once()
             notify.assert_awaited_once()
-            self.assertEqual(notify.call_args.args[0],'daily')
+            self.assertEqual(notify.call_args.args[0],'morning')
 
 
 class PeriodTests(unittest.TestCase):

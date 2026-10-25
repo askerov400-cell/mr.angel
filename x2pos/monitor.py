@@ -14,7 +14,8 @@ class Monitor:
 
     async def notify(self,kind,day,text):
         from notifications import allowed
-        if not allowed('business'): return False
+        area='x2pos_morning' if kind=='morning' else 'business'
+        if not allowed(area): return False
         owner,_=store.identity()
         if not await asyncio.to_thread(store.claim,kind,day): return False
         # Claim before delivery: unknown send result never triggers duplicate sends.
@@ -45,9 +46,9 @@ class Monitor:
         self.failures=0
         logger.info('X2POS: 90 дневных агрегатов обновлены')
         days=result['daily']
-        if 9<=now.hour<22:
+        if now.hour>=9:
             summary=analytics.daily_summary(days,now)
-            if summary: await self.notify('daily',now.date(),summary)
+            if summary: await self.notify('morning',now.date(),summary)
         warning=analytics.drop_alert(days,now)
         if warning: await self.notify('drop',now.date(),warning)
 
