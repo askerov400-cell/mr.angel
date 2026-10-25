@@ -7,7 +7,7 @@ from telegram import InlineKeyboardButton as B, InlineKeyboardMarkup as M
 from kids import report, store
 from memory.journal import send_reply
 
-DAYS = ('mon', 'tue', 'wed', 'thu', 'fri')
+DAYS = store.DAYS
 
 
 def owner_allowed(update):
@@ -16,12 +16,17 @@ def owner_allowed(update):
             and str(update.effective_user.id) == (os.getenv('KIDS_OWNER') or os.getenv('X2POS_OWNER_ID') or ''))
 
 
-def keyboard(day, enabled=True):
-    return M([[B(('· ' if key != day else '✅ ') + store.DAY_NAMES[key][:2], callback_data='kids:day:' + key)
-               for key in DAYS],
-              [B('Забрал', callback_data='kids:done:' + day)],
-              [B('Пауза напоминаний' if enabled else 'Включить напоминания',
-                 callback_data='kids:pause' if enabled else 'kids:enable')]])
+def keyboard(data, day, enabled=True):
+    rows = [[B(('· ' if key != day else '✅ ') + store.DAY_NAMES[key][:2], callback_data='kids:day:' + key)
+             for key in DAYS[:4]],
+            [B(('· ' if key != day else '✅ ') + store.DAY_NAMES[key][:2], callback_data='kids:day:' + key)
+             for key in DAYS[4:]]]
+    for slug, child in (data.get('children') or {}).items():
+        if child.get('week'):
+            rows.append([B('Забрал: ' + child.get('name', slug), callback_data='kids:done:' + slug)])
+    rows.append([B('Пауза напоминаний' if enabled else 'Включить напоминания',
+                   callback_data='kids:pause' if enabled else 'kids:enable')])
+    return M(rows)
 
 
 async def panel(update, context):
@@ -30,11 +35,11 @@ async def panel(update, context):
         return
     moment = store.local_now()
     data = await asyncio.to_thread(store.ensure, update.effective_user.id)
-    day = DAYS[moment.weekday()] if moment.weekday() < 5 else 'mon'
+    day = DAYS[moment.weekday()]
     text = report.day_text(data, day, moment)
     if not data.get('enabled', True):
         text += '\n\nНапоминания на паузе.'
-    await update.message.reply_text(text, reply_markup=keyboard(day, data.get('enabled', True)))
+    await update.message.reply_text(text, reply_markup=keyboard(data, day, data.get('enabled', True)))
 
 
 async def callback(update, context):
@@ -49,16 +54,18 @@ async def callback(update, context):
     if operation == 'day' and tail:
         day = tail[0] if tail[0] in store.DAY_NAMES else 'mon'
         await send_reply(update, report.day_text(data, day, moment),
-                         reply_markup=keyboard(day, data.get('enabled', True)))
+                         reply_markup=keyboard(data, day, data.get('enabled', True)))
         return
     if operation in ('pause', 'enable'):
         data['enabled'] = operation == 'enable'
         await asyncio.to_thread(store.save, owner, data)
         await send_reply(update, 'Напоминания детей: ' + ('включены' if data['enabled'] else 'на паузе') + '.',
-                         reply_markup=keyboard('mon', data['enabled']))
+                         reply_markup=keyboard(data, 'mon', data['enabled']))
         return
     if operation == 'done':
+        child = tail[0] if tail else ''
+        name = ((data.get('children') or {}).get(child) or {}).get('name', 'ребёнок')
         today = moment.date().isoformat()
-        data.setdefault('sent', {}).setdefault(today, {}).update({'before': True, 'end': True})
+        data.setdefault('sent', {}).setdefault(today, {}).setdefault(child, {}).update({'before': True, 'end': True})
         await asyncio.to_thread(store.save, owner, data)
-        await send_reply(update, 'Отмечено: забрал. Напоминания на сегодня закрыты.')
+        await send_reply(update, 'Отмечено: забрал ' + name + '. Напоминания по нему на сегодня закрыты.')

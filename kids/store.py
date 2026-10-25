@@ -11,24 +11,29 @@ ZONE = ZoneInfo('Asia/Qyzylorda')
 def local_now():
     from datetime import datetime
     return datetime.now(ZONE)
-DAYS = ('mon', 'tue', 'wed', 'thu', 'fri')
+DAYS = ('mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun')
 DAY_NAMES = {'mon': 'Понедельник', 'tue': 'Вторник', 'wed': 'Среда', 'thu': 'Четверг', 'fri': 'Пятница',
              'sat': 'Суббота', 'sun': 'Воскресенье'}
 LEAD = 20
 
-SEED = {'children': {'middle': {'name': 'Мария', 'birthday': '2016-02-21', 'grade': '5 А', 'week': {
-    'mon': [('13:15', '13:55', 'прик мат (факультатив)'), ('14:05', '14:45', 'Кл час'),
-            ('14:50', '15:30', 'Англ яз'), ('15:35', '16:15', 'естеств'), ('16:25', '17:05', 'Худ труд'),
-            ('17:15', '17:55', 'матем'), ('18:00', '18:40', 'Каз яз'), ('18:45', '19:25', 'Русский')],
-    'tue': [('14:00', '14:45', 'естествозн'), ('14:50', '15:35', 'физика'), ('15:45', '16:30', 'Каз язык'),
-            ('16:40', '17:25', 'русский'), ('17:30', '18:15', 'музыка'), ('18:20', '19:05', 'математика')],
-    'wed': [('14:00', '14:45', 'Каз яз'), ('14:50', '15:35', 'информ'), ('15:45', '16:30', 'Худ труд'),
-            ('16:40', '17:25', 'физика'), ('17:30', '18:15', 'Рус язык'), ('18:20', '19:05', 'матем')],
-    'thu': [('14:00', '14:45', 'русский'), ('14:50', '15:35', 'Худ труд'), ('15:45', '16:30', 'матем'),
-            ('16:40', '17:25', 'Англ яз')],
-    'fri': [('14:00', '14:45', 'русский'), ('14:50', '15:35', 'история'), ('15:45', '16:30', 'матем'),
-            ('16:40', '17:25', 'Англ яз'), ('17:30', '18:15', 'физика'), ('18:20', '19:05', 'Всемирная ист')],
-}}}, 'enabled': True, 'sent': {}}
+SEED = {'children': {
+    'middle': {'name': 'Мария', 'birthday': '2016-02-21', 'grade': '5 А', 'week': {
+        'mon': [('13:15', '13:55', 'прик мат (факультатив)'), ('14:05', '14:45', 'Кл час'),
+                ('14:50', '15:30', 'Англ яз'), ('15:35', '16:15', 'естеств'), ('16:25', '17:05', 'Худ труд'),
+                ('17:15', '17:55', 'матем'), ('18:00', '18:40', 'Каз яз'), ('18:45', '19:25', 'Русский')],
+        'tue': [('14:00', '14:45', 'естествозн'), ('14:50', '15:35', 'физра'), ('15:45', '16:30', 'Каз язык'),
+                ('16:40', '17:25', 'русский'), ('17:30', '18:15', 'музыка'), ('18:20', '19:05', 'математика')],
+        'wed': [('14:00', '14:45', 'Каз яз'), ('14:50', '15:35', 'информ'), ('15:45', '16:30', 'Худ труд'),
+                ('16:40', '17:25', 'физра'), ('17:30', '18:15', 'Рус язык'), ('18:20', '19:05', 'матем')],
+        'thu': [('14:00', '14:45', 'русский'), ('14:50', '15:35', 'Худ труд'), ('15:45', '16:30', 'матем'),
+                ('16:40', '17:25', 'Англ яз')],
+        'fri': [('14:00', '14:45', 'русский'), ('14:50', '15:35', 'история'), ('15:45', '16:30', 'матем'),
+                ('16:40', '17:25', 'Англ яз'), ('17:30', '18:15', 'физра'), ('18:20', '19:05', 'Всемирная ист')]}},
+    'elder': {'name': 'Ксения', 'birthday': '2011-07-18', 'grade': 'юридический колледж', 'week': {
+        'mon': [('08:00', '12:30', 'колледж')], 'tue': [('08:00', '12:30', 'колледж')],
+        'wed': [('08:00', '12:30', 'колледж')], 'thu': [('08:00', '12:30', 'колледж')],
+        'fri': [('08:00', '12:30', 'колледж')]}},
+}, 'enabled': True, 'sent': {}}
 
 
 def load(owner):
@@ -40,9 +45,28 @@ def load(owner):
     if isinstance(value, dict):
         return value
     try:
-        return json.loads(str(value))
+        return _normalize(json.loads(str(value)))
     except (TypeError, ValueError):
         return {}
+
+
+RENAMED_SUBJECTS = {'физика': 'физра'}
+
+
+def _normalize(data):
+    """Физика в этой таблице — это физкультура; правим старые сохранённые записи."""
+    for child in (data.get('children') or {}).values():
+        week = child.get('week') or {}
+        for day, lessons in list(week.items()):
+            fixed = []
+            for row in lessons or []:
+                try:
+                    start, end, subject = row
+                except (TypeError, ValueError):
+                    fixed.append(row); continue
+                fixed.append((start, end, RENAMED_SUBJECTS.get(str(subject).strip().lower(), subject)))
+            week[day] = fixed
+    return data
 
 
 def save(owner, data):
@@ -59,8 +83,18 @@ def ensure(owner):
         data = json.loads(json.dumps(SEED))
         save(owner, data)
         return data
-    child = (data.get('children') or {}).get('middle') or {}
+    children = data.setdefault('children', {})
     changed = False
+    if 'elder' not in children:
+        children['elder'] = json.loads(json.dumps(SEED['children']['elder']))
+        changed = True
+    else:
+        elder = children['elder']
+        if not elder.get('week'):
+            elder['week'] = json.loads(json.dumps(SEED['children']['elder']['week']))
+            changed = True
+    child = children.get('middle') or {}
+    children['middle'] = child
     if child.get('name') == 'Средняя дочь':
         child['name'] = 'Мария'
         changed = True

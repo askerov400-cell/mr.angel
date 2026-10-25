@@ -12,9 +12,9 @@ logger = logging.getLogger('guardian')
 INTERVAL = 30
 
 
-def buttons(day):
-    return M([[B('Забрал', callback_data='kids:done:' + day),
-               B('Расписание', callback_data='kids:day:' + day)]])
+def buttons(child=''):
+    return M([[B('Забрал', callback_data='kids:done:' + child),
+               B('Расписание', callback_data='kids:day:today')]])
 
 
 class Worker:
@@ -29,31 +29,31 @@ class Worker:
         data = await asyncio.to_thread(store.ensure, self.owner)
         if not data.get('enabled', True):
             return
-        points = report.reminder_moments(data, day, moment)
-        if not points:
-            return
-        before, end, last = points
         today = moment.date().isoformat()
-        marks = (data.get('sent') or {}).get(today) or {}
-        stage = None
-        if not marks.get('before') and before <= moment <= before + timedelta(minutes=20):
-            stage = 'before'
-        elif not marks.get('end') and end <= moment <= end + timedelta(minutes=20):
-            stage = 'end'
-        if not stage:
-            return
-        if stage == 'before':
-            text = ('У ' + last['name'] + ' заканчивается ' + last['subject'] + ' в ' + last['end'] + '. '
-                    'Выезжай, чтобы забрать вовремя.')
-        else:
-            text = last['name'] + ': занятия закончились в ' + last['end'] + '. Забери из школы.'
-        try:
-            await self.bot.send_message(self.owner, text, reply_markup=buttons(day))
-        except Exception as error:
-            logger.warning('Дети: напоминание не отправлено (%s)', type(error).__name__)
-            return
-        data.setdefault('sent', {}).setdefault(today, {})[stage] = True
-        await asyncio.to_thread(store.save, self.owner, data)
+        marks = data.setdefault('sent', {}).setdefault(today, {})
+        for point in report.reminder_points(data, day, moment):
+            child = point['child']
+            state = marks.setdefault(child, {})
+            last = point['last']
+            stage = None
+            if not state.get('before') and point['before'] <= moment <= point['before'] + timedelta(minutes=20):
+                stage = 'before'
+            elif not state.get('end') and point['end'] <= moment <= point['end'] + timedelta(minutes=20):
+                stage = 'end'
+            if not stage:
+                continue
+            if stage == 'before':
+                text = ('У ' + last['name'] + ' заканчивается ' + last['subject'] + ' в ' + last['end'] + '. '
+                        'Выезжай, чтобы забрать вовремя.')
+            else:
+                text = last['name'] + ': занятия закончились в ' + last['end'] + '. Пора забирать.'
+            try:
+                await self.bot.send_message(self.owner, text, reply_markup=buttons(child))
+            except Exception as error:
+                logger.warning('Дети: напоминание не отправлено (%s)', type(error).__name__)
+                continue
+            state[stage] = True
+            await asyncio.to_thread(store.save, self.owner, data)
 
     async def run(self):
         logger.info('Дети: напоминания запущены')
