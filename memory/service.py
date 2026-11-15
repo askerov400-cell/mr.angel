@@ -72,6 +72,8 @@ def format_memory(groups, human=False):
             if block:
                 lines.insert(0, block)
             continue
+        if row.get("state_key") == "archive_photos":
+            continue
         if human:
             name = {"weight": "Вес", "added_sugar_consumption": "Употребление сахара"}.get(
                 row["state_key"], row["state_key"].replace("_", " "))

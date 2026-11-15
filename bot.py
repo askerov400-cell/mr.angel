@@ -39,6 +39,7 @@ from notifications import allowed
 from motivation import handlers as motivation_ui, worker as motivation_worker
 from kids import handlers as kids_ui, worker as kids_worker
 from archive import handlers as archive
+from archive import photos as archive_photos
 import personal_schedule
 
 
@@ -310,6 +311,14 @@ async def document_message(update, context):
 async def photo_message(update, context):
     if not update.effective_user or not update.effective_chat:
         return
+    data = getattr(context, "user_data", None)
+    section_key = data.get(archive.PENDING_KEY) if data else None
+    if section_key:
+        name = archive.section_name(section_key)
+        if name:
+            if await archive_photos.save_from_message(update, context, name):
+                archive.clear_pending(context)
+            return
     key = (update.effective_user.id, update.effective_chat.id)
     if key not in conversation_memory and BACKEND == "supabase" and update.effective_chat.type == "private":
         conversation_memory[key] = await restore_dialogue(update)
@@ -343,6 +352,9 @@ async def handle_text(update, context, user_text):
     user_id = update.effective_user.id
     if await personal_schedule.accept(update, context, user_text):
         return
+    if archive_photos.is_request(user_text):
+        if await archive_photos.send_matches(update, context, user_text):
+            return
     started = time.monotonic()
     logger.info("Получено сообщение: %d символов", len(user_text))
 

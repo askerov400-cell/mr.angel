@@ -38,7 +38,7 @@ def _lines(groups):
     for row in groups.get("memory_entries", [])[:120]:
         rows.append(str(row.get("memory_type", "")) + ": " + str(row.get("memory_text", ""))[:400])
     for row in groups.get("user_states", [])[:40]:
-        if row.get("state_key") == KEY:
+        if row.get("state_key") in (KEY, "archive_photos"):
             continue
         rows.append("STATE " + str(row.get("state_key")) + ": " + str(row.get("state_value")) +
                     (" " + str(row.get("unit")) if row.get("unit") else ""))
