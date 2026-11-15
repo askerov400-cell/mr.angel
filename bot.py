@@ -37,6 +37,7 @@ from acquaintance import worker as acquaintance_worker
 from notifications import allowed
 from motivation import handlers as motivation_ui, worker as motivation_worker
 from kids import handlers as kids_ui, worker as kids_worker
+from archive import handlers as archive
 import personal_schedule
 
 
@@ -282,6 +283,8 @@ async def audio_message(update, context):
 
 
 async def audio_text(update, context, text):
+    if await archive.save_pending(update, context, text):
+        return
     if await acquaintance_ui.answer(update, context, text=text):
         return
     await handle_text(update, context, text)
@@ -326,6 +329,7 @@ async def handle_message(
             and update.effective_chat.type == 'private'):
         application.bot_data.setdefault('last_activity', {})[update.effective_user.id] = time.time()
     if await interface.text(update,context,{"memory":show_memory,"remember":remember}):return
+    if await archive.save_pending(update, context, update.message.text):return
     if await acquaintance_ui.answer(update,context):return
     await acquaintance_ui.suggest(update,context)
     await handle_text(update, context, update.message.text)
@@ -518,6 +522,7 @@ def main():
     app.add_handler(CommandHandler("motivation", motivation_ui.panel))
     app.add_handler(CommandHandler("kids", kids_ui.panel))
     app.add_handler(CallbackQueryHandler(kids_ui.callback,pattern=r"^kids:"))
+    app.add_handler(CallbackQueryHandler(archive.callback,pattern=r"^archive:"))
     app.add_handler(CommandHandler("schedule", personal_schedule.panel))
     app.add_handler(CallbackQueryHandler(personal_schedule.callback,pattern=r"^sched:"))
     app.add_handler(CallbackQueryHandler(motivation_ui.callback,pattern=r"^mot:"))

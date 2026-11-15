@@ -13,12 +13,13 @@ QUESTIONS='🤝 Знакомство'
 KASPI='🛍 Kaspi'
 X2POS='📊 Аналитика бизнеса'
 KIDS='📅 Расписание детей'
+ARCHIVE='📁 Архив'
 LEGACY_X2POS='📦 X2POS'
-LABELS={CHAT,MEMORY,SAVE,NEW,HELP,QUESTIONS,KASPI,X2POS,LEGACY_X2POS,KIDS}
-SERVICE_PREFIXES=('Знакомство\n','Хранитель\n','Возможности Хранителя\n','Запись в память\n','Новый диалог\n','Общение\n','Действие отменено.','Подтверждение уже не действует.')
+LABELS={CHAT,MEMORY,SAVE,NEW,HELP,QUESTIONS,KASPI,X2POS,LEGACY_X2POS,KIDS,ARCHIVE}
+SERVICE_PREFIXES=('Знакомство\n','Хранитель\n','Возможности Хранителя\n','Запись в память\n','Новый диалог\n','Общение\n','Действие отменено.','Подтверждение уже не действует.','Архив','Сохранено в раздел')
 
 def keyboard():
-    return ReplyKeyboardMarkup([[CHAT,MEMORY],[SAVE,QUESTIONS],[NEW,HELP],[KASPI,X2POS],[KIDS]],resize_keyboard=True,is_persistent=True,input_field_placeholder='Напиши сообщение Хранителю')
+    return ReplyKeyboardMarkup([[CHAT,MEMORY],[SAVE,QUESTIONS],[NEW,HELP],[KASPI,X2POS],[KIDS,ARCHIVE]],resize_keyboard=True,is_persistent=True,input_field_placeholder='Напиши сообщение Хранителю')
 
 def private(update):
     return bool(update.effective_user and update.effective_chat and update.effective_chat.type=='private' and update.effective_user.id==update.effective_chat.id)
@@ -28,11 +29,15 @@ async def home(update,context):
         await send_reply(update,'Открой личный чат со мной, чтобы работать с памятью.');return
     context.user_data.pop('interface_input',None)
     context.user_data.pop('interface_clear',None)
+    from archive.handlers import clear_pending
+    clear_pending(context)
     await send_reply(update,'Хранитель\n\nНапиши сообщение, пришли голосовое, фото, видео или документ.\n\nКнопки внизу помогут посмотреть память, сохранить важное и начать новый диалог.',reply_markup=keyboard())
 
 async def cancel(update,context):
     if not private(update):return
     context.user_data.pop('interface_input',None);context.user_data.pop('interface_clear',None)
+    from archive.handlers import clear_pending
+    clear_pending(context)
     await send_reply(update,'Действие отменено. Можешь продолжить общение.',reply_markup=keyboard())
 
 async def text(update,context,handlers):
@@ -42,6 +47,8 @@ async def text(update,context,handlers):
     content=update.message.text.strip()
     if content in LABELS:
         data.pop('interface_input',None);data.pop('interface_clear',None)
+        from archive.handlers import clear_pending
+        clear_pending(context)
         if content in (X2POS,LEGACY_X2POS):
             from x2pos.handlers import panel
             await panel(update,context)
@@ -53,6 +60,9 @@ async def text(update,context,handlers):
             await panel(update,context)
         elif content==KIDS:
             from kids.handlers import panel
+            await panel(update,context)
+        elif content==ARCHIVE:
+            from archive.handlers import panel
             await panel(update,context)
         elif content==MEMORY:
             await handlers['memory'](update,context)
