@@ -30,6 +30,7 @@ from vision.handler import handle_photo
 from video.handler import handle_video
 from interface import menu as interface
 from kaspi import handlers as kaspi_ui
+from kaspi import monitor as kaspi_monitor
 from x2pos import handlers as x2pos_ui
 from x2pos import monitor as business_monitor, dialogue as business_dialogue
 from acquaintance import handlers as acquaintance_ui
@@ -104,12 +105,15 @@ async def telegram_ready(app):
             logger.info("Kaspi: API чтения заказов проверен")
         except Exception as error:
             logger.warning("Kaspi: API не подтверждён (%s)", type(error).__name__)
+        if BACKEND == "supabase":
+            await kaspi_monitor.start(app)
     logger.info("Telegram проверен: @%s", app.bot.username)
     logger.info("Запускается получение сообщений. Остановка: Ctrl+C")
 
 
 async def stop_workers(app):
     await business_monitor.stop(app)
+    await kaspi_monitor.stop(app)
     await motivation_worker.stop(app)
     await kids_worker.stop(app)
     await acquaintance_worker.stop(app)

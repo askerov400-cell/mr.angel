@@ -17,7 +17,10 @@ class Monitor:
         area='x2pos_morning' if kind=='morning' else 'business'
         if not allowed(area): return False
         owner,_=store.identity()
-        if not await asyncio.to_thread(store.claim,kind,day): return False
+        # business_notifications CHECK допускает daily/drop/failure; утренний отчёт
+        # хранится как daily, чтобы не нарушать ограничение базы.
+        claim_kind='daily' if kind=='morning' else kind
+        if not await asyncio.to_thread(store.claim,claim_kind,day): return False
         # Claim before delivery: unknown send result never triggers duplicate sends.
         try:
             await asyncio.wait_for(self.bot.send_message(chat_id=owner,text=text),30)

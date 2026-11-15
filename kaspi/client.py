@@ -131,14 +131,16 @@ def clean(item):
     except (KeyError,TypeError,AttributeError,ValueError):
         raise KaspiError("Kaspi вернул некорректную карточку заказа.") from None
 
-def orders(state,page=0, size=10, since=None):
+def orders(state,page=0, size=10, since=None, until=None):
     if state not in STATES or isinstance(page,bool) or not isinstance(page,int) or not 0<=page<=999:raise ValueError("Invalid query")
     if size not in (10,100):raise ValueError("Invalid size")
     now=datetime.now(timezone.utc)
     start=since or (now-timedelta(days=7))
+    end=until or now
+    if start>end:raise ValueError("Until before since")
     rows=request({"page[number]":page,"page[size]":size,"filter[orders][state]":state,
                   "filter[orders][creationDate][$ge]":int(start.timestamp()*1000),
-                  "filter[orders][creationDate][$le]":int(now.timestamp()*1000)})
+                  "filter[orders][creationDate][$le]":int(end.timestamp()*1000)})
     if not isinstance(rows,list):raise KaspiError("Kaspi вернул неверный список заказов.")
     return [clean(r) for r in rows[:size]]
 
