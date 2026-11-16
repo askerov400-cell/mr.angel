@@ -26,6 +26,8 @@ def clear_pending(context):
     data = getattr(context, "user_data", None)
     if data:
         data.pop(PENDING_KEY, None)
+        from archive.photos import PENDING_PHOTO
+        data.pop(PENDING_PHOTO, None)
 
 
 def section_name(key):

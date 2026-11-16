@@ -11,6 +11,7 @@ import time
 from storage.supabase_store import _request, _user_id
 
 KEY = "archive_photos"
+PENDING_PHOTO = "archive_photo_pending"
 MAX_PHOTOS = 1000
 STOPWORDS = {
     "фото", "фотограф", "снимок", "покажи", "показать", "найди", "найти", "дай",
@@ -100,35 +101,66 @@ def is_request(text):
 
 
 async def save_from_message(update, context, section):
-    """Сохраняет фото-сообщение в раздел архива; True, если сохранено."""
+    """Обрабатывает фото-сообщение в архиве; True, если принято.
+
+    С подписью в caption — сохраняет сразу. Без подписи — запоминает file_id
+    и ждёт подпись отдельным сообщением через try_save_caption.
+    """
     from memory.journal import redact, send_reply
     photo = update.message.photo[-1]
     caption = redact(update.message.caption or "").strip()
-    if not caption:
-        await send_reply(
-            update,
-            "Архив · " + section + "\n\nК фото нужна подпись. Напиши её в поле «Описание» "
-            "и отправь фото ещё раз.",
-        )
-        return False
-    add(update.effective_user.id, section, photo.file_id, caption)
-    await send_reply(update, "Сохранено фото в раздел «" + section + "»: " + caption)
+    if caption:
+        add(update.effective_user.id, section, photo.file_id, caption)
+        await send_reply(update, "Сохранено фото в раздел «" + section + "»: " + caption)
+        return True
+    context.user_data[PENDING_PHOTO] = {
+        "section": section, "file_id": photo.file_id,
+    }
+    await send_reply(
+        update,
+        "Архив · " + section + "\n\nФото принял. Напиши подпись следующим сообщением — "
+        "по ней потом найдёшь снимок. Например: «стеллаж №3».",
+    )
     return True
 
 
-async def send_matches(update, context, query, limit=10):
-    """Отправляет найденные фото; True, если обработал запрос."""
+async def try_save_caption(update, context, text):
+    """Если ждёт подпись к фото — сохраняет фото с этой подписью; True."""
+    from memory.journal import redact, send_reply
+    data = getattr(context, "user_data", None)
+    pending = data.get(PENDING_PHOTO) if data else None
+    if not pending:
+        return False
+    data.pop(PENDING_PHOTO, None)
+    text = redact(text or "").strip()
+    if not text:
+        await send_reply(update, "Архив: подпись пустая, фото не сохранено.")
+        return True
+    add(update.effective_user.id, pending["section"], pending["file_id"], text)
+    await send_reply(update, "Сохранено фото в раздел «" + pending["section"] + "»: " + text)
+    return True
+
+
+async def try_find(update, context, text, limit=10):
+    """Ищет и показывает фото по словам запроса; True, если обработал запрос.
+
+    Возвращает False, когда запрос не про фото и совпадений нет — тогда
+    сообщение идёт обычным путём в диалог.
+    """
     from memory.journal import send_reply
-    photos = find(update.effective_user.id, query, limit)
-    if not photos:
+    explicit = is_request(text)
+    photos = find(update.effective_user.id, text, limit)
+    if photos:
+        for photo in photos:
+            await update.message.reply_photo(
+                photo["file_id"], caption=(photo.get("caption") or "")
+            )
+        return True
+    if explicit:
         await send_reply(
             update,
             "Архив: фото по запросу не найдено. Загрузи фото с подписью, "
             "затем спрашивай по словам из подписи.",
         )
         return True
-    for photo in photos:
-        await update.message.reply_photo(
-            photo["file_id"], caption=(photo.get("caption") or "")
-        )
-    return True
+    return False

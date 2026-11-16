@@ -288,6 +288,8 @@ async def audio_message(update, context):
 
 
 async def audio_text(update, context, text):
+    if await archive_photos.try_save_caption(update, context, text):
+        return
     if await archive.save_pending(update, context, text):
         return
     if await acquaintance_ui.answer(update, context, text=text):
@@ -342,6 +344,7 @@ async def handle_message(
             and update.effective_chat.type == 'private'):
         application.bot_data.setdefault('last_activity', {})[update.effective_user.id] = time.time()
     if await interface.text(update,context,{"memory":show_memory,"remember":remember}):return
+    if await archive_photos.try_save_caption(update, context, update.message.text):return
     if await archive.save_pending(update, context, update.message.text):return
     if await acquaintance_ui.answer(update,context):return
     await acquaintance_ui.suggest(update,context)
@@ -352,9 +355,8 @@ async def handle_text(update, context, user_text):
     user_id = update.effective_user.id
     if await personal_schedule.accept(update, context, user_text):
         return
-    if archive_photos.is_request(user_text):
-        if await archive_photos.send_matches(update, context, user_text):
-            return
+    if await archive_photos.try_find(update, context, user_text):
+        return
     started = time.monotonic()
     logger.info("Получено сообщение: %d символов", len(user_text))
 
