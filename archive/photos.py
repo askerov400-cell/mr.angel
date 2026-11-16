@@ -1,18 +1,27 @@
-"""Архив фото: ссылки на снимки по разделам и поиск по подписи.
+"""Архив фото: снимки в Supabase Storage, поиск по подписи.
 
-Файлы живут на серверах Telegram по file_id; в user_states хранится только
-JSON-строка со списком записей (раздел, file_id, подпись, дата). Значение
-остаётся примитивом-строкой, как требуют ограничения user_states.
+Файл хранится в приватном бакете Storage archive-media; в user_states под
+ключом archive_photos лежит JSON-список (раздел, путь в Storage, подпись, дата).
 """
+import asyncio
 import json
+import logging
+import os
 import re
 import time
+import uuid
+from urllib.request import Request, urlopen
+from urllib.error import HTTPError
 
 from storage.supabase_store import _request, _user_id
+
+logger = logging.getLogger("guardian")
 
 KEY = "archive_photos"
 PENDING_PHOTO = "archive_photo_pending"
 MAX_PHOTOS = 1000
+BUCKET = "archive-media"
+
 STOPWORDS = {
     "фото", "фотограф", "снимок", "покажи", "показать", "найди", "найти", "дай",
     "мне", "где", "есть", "ли", "в", "на", "и", "у", "с", "по",
@@ -72,10 +81,60 @@ def _save(owner, photos):
     })
 
 
-def add(owner, section, file_id, caption):
+def _storage_headers():
+    base = os.getenv("SUPABASE_URL", "").rstrip("/")
+    key = os.getenv("SUPABASE_SECRET_KEY", "")
+    if not base or not key:
+        raise RuntimeError("Storage не настроен")
+    headers = {"apikey": key}
+    if not key.startswith("sb_secret_"):
+        headers["Authorization"] = "Bearer " + key
+    return base, headers
+
+
+def storage_put(owner, data, extension="jpg"):
+    """Загружает байты в приватный бакет и возвращает путь объекта."""
+    base, headers = _storage_headers()
+    path = f"{owner}/{uuid.uuid4().hex}.{extension}"
+    url = f"{base}/storage/v1/object/{BUCKET}/{path}"
+    headers = {**headers, "Content-Type": "image/jpeg"}
+    request = Request(url, data=bytes(data), headers=headers, method="POST")
+    try:
+        with urlopen(request, timeout=30) as response:
+            response.read()
+    except HTTPError as error:
+        raise RuntimeError(f"Storage upload HTTP {error.code}") from None
+    return path
+
+
+def storage_get(path):
+    """Скачивает объект из бакета и возвращает байты."""
+    base, headers = _storage_headers()
+    url = f"{base}/storage/v1/object/{BUCKET}/{path}"
+    request = Request(url, headers=headers)
+    try:
+        with urlopen(request, timeout=30) as response:
+            return response.read()
+    except HTTPError as error:
+        raise RuntimeError(f"Storage download HTTP {error.code}") from None
+
+
+def storage_delete(path):
+    """Удаляет объект из бакета; ошибка удаления не критична."""
+    base, headers = _storage_headers()
+    url = f"{base}/storage/v1/object/{BUCKET}/{path}"
+    request = Request(url, headers=headers, method="DELETE")
+    try:
+        with urlopen(request, timeout=30) as response:
+            response.read()
+    except HTTPError:
+        return
+
+
+def add(owner, section, storage_path, caption):
     photos = _load(owner)
     photos.append({
-        "section": section, "file_id": file_id,
+        "section": section, "storage_path": storage_path,
         "caption": caption.strip(), "added_at": int(time.time()),
     })
     _save(owner, photos[-MAX_PHOTOS:])
@@ -110,15 +169,23 @@ def is_request(text):
 async def save_from_message(update, context, section):
     """Обрабатывает фото-сообщение в архиве.
 
-    С подписью в caption — сохраняет сразу и возвращает True. Без подписи —
-    запоминает file_id, просит подпись и возвращает False, чтобы вызывающий
-    код не сбрасывал ожидание подписи.
+    Скачивает байты из Telegram, загружает в Storage. С подписью в caption —
+    сохраняет сразу и возвращает True. Без подписи — запоминает file_id,
+    просит подпись и возвращает False, чтобы не сбросить ожидание подписи.
     """
     from memory.journal import redact, send_reply
     photo = update.message.photo[-1]
     caption = redact(update.message.caption or "").strip()
     if caption:
-        add(update.effective_user.id, section, photo.file_id, caption)
+        try:
+            remote = await photo.get_file()
+            data = await remote.download_as_bytearray()
+            path = await asyncio.to_thread(storage_put, update.effective_user.id, bytes(data))
+        except Exception as error:
+            logger.warning("Архив: загрузка фото в Storage не удалась (%s)", type(error).__name__)
+            await send_reply(update, "Не удалось сохранить фото. Попробуй ещё раз.")
+            return True
+        add(update.effective_user.id, section, path, caption)
         await send_reply(update, "Сохранено фото в раздел «" + section + "»: " + caption)
         return True
     context.user_data[PENDING_PHOTO] = {
@@ -133,7 +200,7 @@ async def save_from_message(update, context, section):
 
 
 async def try_save_caption(update, context, text):
-    """Если ждёт подпись к фото — сохраняет фото с этой подписью; True."""
+    """Если ждёт подпись к фото — загружает фото в Storage с этой подписью; True."""
     from memory.journal import redact, send_reply
     data = getattr(context, "user_data", None)
     pending = data.get(PENDING_PHOTO) if data else None
@@ -144,7 +211,15 @@ async def try_save_caption(update, context, text):
     if not text:
         await send_reply(update, "Архив: подпись пустая, фото не сохранено.")
         return True
-    add(update.effective_user.id, pending["section"], pending["file_id"], text)
+    try:
+        remote = await context.bot.get_file(pending["file_id"])
+        file_data = await remote.download_as_bytearray()
+        path = await asyncio.to_thread(storage_put, update.effective_user.id, bytes(file_data))
+    except Exception as error:
+        logger.warning("Архив: загрузка фото в Storage не удалась (%s)", type(error).__name__)
+        await send_reply(update, "Не удалось сохранить фото. Попробуй ещё раз.")
+        return True
+    add(update.effective_user.id, pending["section"], path, text)
     from archive.handlers import clear_pending
     clear_pending(context)
     await send_reply(update, "Сохранено фото в раздел «" + pending["section"] + "»: " + text)
@@ -162,9 +237,19 @@ async def try_find(update, context, text, limit=10):
     photos = find(update.effective_user.id, text, limit)
     if photos:
         for photo in photos:
-            await update.message.reply_photo(
-                photo["file_id"], caption=(photo.get("caption") or "")
-            )
+            path = photo.get("storage_path")
+            if path:
+                try:
+                    data = await asyncio.to_thread(storage_get, path)
+                    await update.message.reply_photo(bytes(data), caption=(photo.get("caption") or ""))
+                    continue
+                except Exception as error:
+                    logger.warning("Архив: выдача фото из Storage не удалась (%s)", type(error).__name__)
+            # Старые записи без storage_path или сбой Storage — отдаём по file_id.
+            if photo.get("file_id"):
+                await update.message.reply_photo(photo["file_id"], caption=(photo.get("caption") or ""))
+            else:
+                await send_reply(update, "Не удалось загрузить фото из хранилища.")
         return True
     if explicit:
         await send_reply(
