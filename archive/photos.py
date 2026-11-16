@@ -101,10 +101,11 @@ def is_request(text):
 
 
 async def save_from_message(update, context, section):
-    """Обрабатывает фото-сообщение в архиве; True, если принято.
+    """Обрабатывает фото-сообщение в архиве.
 
-    С подписью в caption — сохраняет сразу. Без подписи — запоминает file_id
-    и ждёт подпись отдельным сообщением через try_save_caption.
+    С подписью в caption — сохраняет сразу и возвращает True. Без подписи —
+    запоминает file_id, просит подпись и возвращает False, чтобы вызывающий
+    код не сбрасывал ожидание подписи.
     """
     from memory.journal import redact, send_reply
     photo = update.message.photo[-1]
@@ -121,7 +122,7 @@ async def save_from_message(update, context, section):
         "Архив · " + section + "\n\nФото принял. Напиши подпись следующим сообщением — "
         "по ней потом найдёшь снимок. Например: «стеллаж №3».",
     )
-    return True
+    return False
 
 
 async def try_save_caption(update, context, text):
@@ -137,6 +138,8 @@ async def try_save_caption(update, context, text):
         await send_reply(update, "Архив: подпись пустая, фото не сохранено.")
         return True
     add(update.effective_user.id, pending["section"], pending["file_id"], text)
+    from archive.handlers import clear_pending
+    clear_pending(context)
     await send_reply(update, "Сохранено фото в раздел «" + pending["section"] + "»: " + text)
     return True
 

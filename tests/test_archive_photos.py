@@ -85,7 +85,7 @@ class MessageTests(unittest.IsolatedAsyncioTestCase):
         context = NS(user_data={})
         with patch.object(photos, "add") as add, \
              patch("memory.journal.send_reply", new=AsyncMock()):
-            self.assertTrue(await photos.save_from_message(update, context, "Рабочие фото"))
+            self.assertFalse(await photos.save_from_message(update, context, "Рабочие фото"))
         add.assert_not_called()
         self.assertEqual(context.user_data[photos.PENDING_PHOTO]["file_id"], "F")
 
