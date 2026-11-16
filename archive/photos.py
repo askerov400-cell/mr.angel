@@ -82,17 +82,24 @@ def add(owner, section, file_id, caption):
 
 
 def find(owner, query, limit=10):
-    """Возвращает фото, где все значимые слова запроса покрыты подписью."""
+    """Возвращает фото по запросу.
+
+    Сначала фото, где покрыты все значимые слова; если таких нет — фото,
+    где покрыто хотя бы одно слово. Без значимых слов — последние фото.
+    """
     photos = _load(owner)
     words = _words(query)
     if not words:
         return photos[-limit:]
-    matches = []
+    exact = []
+    partial = []
     for photo in photos:
         caption = (photo.get("caption") or "").lower()
         if all(_covers(word, caption) for word in words):
-            matches.append(photo)
-    return matches[-limit:]
+            exact.append(photo)
+        elif any(_covers(word, caption) for word in words):
+            partial.append(photo)
+    return (exact or partial)[-limit:]
 
 
 def is_request(text):

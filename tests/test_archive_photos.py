@@ -61,6 +61,12 @@ class FindTests(unittest.TestCase):
             result = photos.find(123, "фото сахар")
         self.assertEqual(result, [])
 
+    def test_partial_match_falls_back(self):
+        with patch.object(photos, "_load", return_value=self.PHOTOS):
+            result = photos.find(123, "стеллаж борщ")
+        # Точного совпадения нет; частично покрыты все три фото.
+        self.assertEqual(len(result), 3)
+
     def test_is_request(self):
         self.assertTrue(photos.is_request("покажи фото стеллажа"))
         self.assertTrue(photos.is_request("СНИМОК"))
