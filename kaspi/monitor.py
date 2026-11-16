@@ -1,6 +1,5 @@
 """Ежедневная сводка Kaspi в 09:05 с защитой от повторов через user_states."""
 import asyncio
-import json
 import logging
 import os
 import time
@@ -19,6 +18,7 @@ SEND_AFTER = (9, 5)  # час, минута (Asia/Qyzylorda)
 
 
 def last_sent(owner):
+    """Ординал последнего дня, за который отправлена сводка; None, если нет."""
     rows = _request("user_states", params={
         "select": "state_value", "telegram_user_id": f"eq.{_user_id(owner)}",
         "state_key": f"eq.{KEY}", "limit": "1",
@@ -26,15 +26,24 @@ def last_sent(owner):
     if not rows:
         return None
     value = rows[0].get("state_value")
-    return value if isinstance(value, str) else None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return int(value)
 
 
-def mark_sent(owner, day):
-    _request("rpc/save_user_state", record={
+def claim(owner, day):
+    """Записывает день и возвращает True, только если это первый захват дня.
+
+    save_user_state возвращает found=true при вставке или реальном изменении;
+    повторный вызов с тем же значением даёт found=false. Это атомарная защита
+    от дублей без отдельного чтения.
+    """
+    rows = _request("rpc/save_user_state", record={
         "p_user_id": _user_id(owner), "p_key": KEY,
-        "p_value": json.dumps(day.isoformat()),
+        "p_value": day.toordinal(),
         "p_category": "kaspi", "p_unit": None, "p_confidence": 1.0,
     })
+    return bool(rows) and rows[0].get("saved") is True
 
 
 class Monitor:
@@ -55,16 +64,18 @@ class Monitor:
         if (now.hour, now.minute) < SEND_AFTER:
             return
         target = now.date() - timedelta(days=1)
-        if last_sent(self.owner) == target.isoformat():
+        # Быстрый путь: день уже отправлен — не дёргаем API Kaspi.
+        if last_sent(self.owner) == target.toordinal():
             return
         try:
             text = await statistics.summary(target)
         except KaspiError as error:
             logger.warning("Kaspi: сводка не готова (%s)", type(error).__name__)
             return
-        # Записываем до отправки: неизвестный исход не порождает повторную рассылку.
+        # Атомарный захват до отправки: неизвестный исход не даёт повторной рассылки.
         try:
-            mark_sent(self.owner, target)
+            if not claim(self.owner, target):
+                return
         except Exception as error:
             logger.warning("Kaspi: отметка сводки не сохранена (%s)", type(error).__name__)
             return
